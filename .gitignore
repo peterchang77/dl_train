@@ -1,0 +1,6 @@
+__pycache__
+*.swp
+*.pkl
+*.npz
+*.hdf5
+temp/
