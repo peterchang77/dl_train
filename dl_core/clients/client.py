@@ -1,10 +1,10 @@
 import os, glob, pickle
 import numpy as np
-from jarvis.io import hdf5
+from dl_core.io import hdf5
 
 class Client():
 
-    def __init__(self):
+    def __init__(self, SUMMARY_PATH=None):
 
         self.data = None 
         self.meta = {} 
@@ -15,6 +15,8 @@ class Client():
 
         self.sampling_rates = None 
         self.set_training_rates()
+
+        self.SUMMARY_PATH = SUMMARY_PATH
 
     def check_data_is_loaded(func):
         """
@@ -32,7 +34,7 @@ class Client():
 
         return wrapper
 
-    def make_summary(self, query, LABELED, CLASSES=2, N_FOLDS=5, PKL='./pkls/summary.pkl'):
+    def make_summary(self, query, LABELED, CLASSES=2, N_FOLDS=5, SUMMARY_PATH='./pkls/summary.pkl'):
         """
         Method to read all data and make summary dictionary 
 
@@ -78,7 +80,7 @@ class Client():
         META['index'] = []
         META['coord'] = []
 
-        for n, m in enumerate(matches[:10]):
+        for n, m in enumerate(matches):
 
             self.print_ljust('CREATING SUMMARY (%07i/%07i): %s' % (n + 1, len(matches), m))
 
@@ -109,7 +111,7 @@ class Client():
 
                 # --- Aggregate information
                 META['index'].append(np.ones(data.shape[0], dtype='int') * len(DATA))
-                META['coord'].append(np.arange(data.shape[0]))
+                META['coord'].append(np.arange(data.shape[0]) / (data.shape[0] - 1))
                 DATA.append(d)
 
         # --- Set validation fold (N-folds)
@@ -121,6 +123,7 @@ class Client():
         META = {k: np.concatenate(v) for k, v in META.items()}
 
         # --- Serialize
+        PKL = self.SUMMARY_PATH or SUMMARY_PATH
         os.makedirs(os.path.dirname(PKL), exist_ok=True)
         pickle.dump({'data': DATA, 'meta': META}, open(PKL, 'wb'))
 
@@ -130,8 +133,9 @@ class Client():
         # --- Final output
         self.print_final('FOUND A TOTAL OF: %i PATIENTS | %i SLICES' % (len(DATA), len(META['coord'])))
 
-    def load_summary(self, PKL='./pkls/summary.pkl'):
+    def load_summary(self, SUMMARY_PATH='./pkls/summary.pkl'):
 
+        PKL = self.SUMMARY_PATH or SUMMARY_PATH
         if not os.path.exists(PKL):
             print('ERROR provided Pickle file not found: %s' % PKL)
             return
@@ -156,6 +160,16 @@ class Client():
         else:
             print('ERROR provided extension is not supported: %s' % ext)
             return None, {} 
+
+    def load_dict(self, data, **kwargs):
+
+        assert type(data) is dict
+
+        arrays = {}
+        for key, val in data.items():
+            arrays[key], _ = self.load(data=val, **kwargs)
+
+        return arrays
 
     def load_hdf5(self, fname, **kwargs):
 
@@ -263,7 +277,17 @@ class Client():
 
     def get(self, arrays=None, split=None, cohort=None):
 
-        pass
+        # --- Load data
+        if arrays is None:
+            data, meta = self.prepare_next_array(split=split, cohort=cohort)
+            arrays = self.load_dict(data=data, infos={
+                'point': [meta['coord'], 0.5, 0.5], 
+                'shape': [1, 512, 512]})
+
+        else:
+            pass
+
+        return arrays
 
     def print_ljust(self, s, SIZE=80, END='\r'):
 
@@ -280,23 +304,23 @@ class Client():
         print(h)
 
 # ===================================================================================
-client = Client()
+# client = Client(SUMMARY_PATH='../../data/pkls/summary.pkl')
 # ===================================================================================
 # client.make_summary(
 #     query={
-#         'root': '/mnt/hdd1/data/raw/asnr_head_ct/processed',
+#         'root': '../../data/hdfs',
 #         'dat': 'dat.hdf5',
 #         'bet': 'bet.hdf5'},
 #     LABELED='bet',
 #     CLASSES=2)
 # ===================================================================================
-client.load_summary()
-client.prepare_cohorts(fold=0)
-client.set_sampling_rates(rates={
-    1: 0.5,
-    2: 0.5})
+# client.load_summary()
+# client.prepare_cohorts(fold=0)
+# client.set_sampling_rates(rates={
+#     1: 0.5,
+#     2: 0.5})
 # ===================================================================================
-for i in range(1000):
-    print('Running iteration: %04i' % i, end='\r')
-    data, meta = client.prepare_next_array()
+# for i in range(100):
+#     print('Running iteration: %04i' % i, end='\r')
+#     arrays = client.get()
 # ===================================================================================
