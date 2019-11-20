@@ -103,6 +103,7 @@ class Client():
             # --- Caculate summary meta information from LABELED
             if len(d) == len(keys):
 
+                # --- Aggregate slice-by-slice label information
                 data, _ = self.load(d[LABELED])
 
                 for c in range(CLASSES + 1):
