@@ -16,7 +16,11 @@ class Client():
         self.sampling_rates = None 
         self.set_training_rates()
 
-        self.SUMMARY_PATH = SUMMARY_PATH
+        # --- Prepare summary path
+        VAR = 'DL_CLIENT_SUMMARY_PATH'
+        self.SUMMARY_PATH = SUMMARY_PATH if VAR not in os.environ else os.environ[VAR]
+        if os.path.exists(self.SUMMARY_PATH or ''):
+            self.load_summary()
 
     def check_data_is_loaded(func):
         """
