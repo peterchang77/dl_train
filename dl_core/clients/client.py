@@ -288,7 +288,14 @@ class Client():
         else:
             pass
 
-        return arrays
+        # --- Normalize
+        arrays['dat'] = arrays['dat'].clip(min=-256, max=512) / 256
+
+        # --- Convert label to 0 and 1
+        arrays['bet'] = (arrays['bet'] == 2).astype('uint8')
+
+        # --- Return (x, y)
+        return arrays['dat'], arrays['bet']
 
     def print_ljust(self, s, SIZE=80, END='\r'):
 
@@ -321,7 +328,7 @@ class Client():
 #     1: 0.5,
 #     2: 0.5})
 # ===================================================================================
-# for i in range(100):
+# for i in range(10000):
 #     print('Running iteration: %04i' % i, end='\r')
-#     arrays = client.get()
+#     x, y = client.get()
 # ===================================================================================
