@@ -38,7 +38,7 @@ class Client():
 
         return wrapper
 
-    def make_summary(self, query, LABELED, CLASSES=2, N_FOLDS=5, SUMMARY_PATH='./pkls/summary.pkl'):
+    def make_summary(self, query, CLASSES=2, N_FOLDS=5, SUMMARY_PATH='./pkls/summary.pkl'):
         """
         Method to read all data and make summary dictionary 
 
@@ -47,8 +47,8 @@ class Client():
           (dict) query : {
 
             'root': '/path/to/root/dir',
-            [key_00]: [query_00],
-            [key_01]: [query_01], ...
+            'dat': [query_00],
+            'lbl': [query_01], ...
 
           }
 
@@ -71,7 +71,6 @@ class Client():
         """
         assert 'root' in query
         assert len(query) > 1
-        assert LABELED in query
 
         root = query.pop('root')
         keys = sorted(query.keys())
@@ -83,6 +82,8 @@ class Client():
         META = {c: [] for c in range(CLASSES + 1)}
         META['index'] = []
         META['coord'] = []
+        META['mu'] = []
+        META['sd'] = []
 
         for n, m in enumerate(matches):
 
@@ -104,17 +105,25 @@ class Client():
                 else: 
                     self.print_ljust('ERROR more than a single match found: %s/%s' % (b, query[key]), END='\n')
 
-            # --- Caculate summary meta information from LABELED
+            # --- Caculate summary meta information
             if len(d) == len(keys):
 
                 # --- Aggregate slice-by-slice label information
-                data, _ = self.load(d[LABELED])
+                if 'lbl' in d:
+                    data, _ = self.load(d['lbl'])
 
-                for c in range(CLASSES + 1):
-                    s = np.sum(data == c, axis=(1, 2, 3)) > 0
-                    META[c].append(s)
+                    for c in range(CLASSES + 1):
+                        s = np.sum(data == c, axis=(1, 2, 3)) > 0
+                        META[c].append(s)
 
-                # --- Aggregate information
+                # --- Aggregate slice-by-slice data information
+                if 'dat' in d:
+                    data, _ = self.load(d['dat'])
+
+                    META['mu'].append(data.mean(axis=(0, 1, 2)).reshape(1, -1))
+                    META['sd'].append(data.std(axis=(0, 1, 2)).reshape(1, -1))
+
+                # --- Aggregate index/coord information
                 META['index'].append(np.ones(data.shape[0], dtype='int') * len(DATA))
                 META['coord'].append(np.arange(data.shape[0]) / (data.shape[0] - 1))
                 DATA.append(d)
@@ -188,7 +197,7 @@ class Client():
         pass
 
     @check_data_is_loaded
-    def prepare_cohorts(self, fold):
+    def prepare_cohorts(self, fold, cohorts):
         """
         Method to separate out data into specific cohorts, the sampling rate of which
         will be defined in self.sampling_rates
@@ -196,6 +205,9 @@ class Client():
         IMPORTANT: this is a default template; please modify as needed for your data
 
         """
+        for k in cohorts:
+            assert k in self.meta
+
         for split in ['train', 'valid']:
 
             # --- Determine mask corresponding to current split 
@@ -206,11 +218,9 @@ class Client():
             elif split == 'valid':
                 mask = self.meta['valid'] == fold
 
-            # --- Find slices with class == 2
-            self.cohorts[split][2] = np.nonzero(self.meta[2] & mask)[0]
-
-            # --- Find slices with class == 1 (and not class == 2)
-            self.cohorts[split][1] = np.nonzero(self.meta[1] & ~self.meta[2] & mask)[0]
+            # --- Define cohorts based on cohorts lambda functions
+            for key, f in cohorts.items():
+                self.cohorts[split][key] = np.nonzero(f(self.meta) & mask)[0]
 
             # --- Randomize indices for next epoch
             for cohort in self.cohorts[split]:
@@ -278,28 +288,24 @@ class Client():
         # --- Increment counter
         c['count'] += 1
 
-        return data, {'coord': coord, 'split': split, 'cohort': cohort}
+        return data, {'coord': coord, 'index': index, 'split': split, 'cohort': cohort}
 
-    def get(self, arrays=None, split=None, cohort=None):
+    def get(self, shape, split=None, cohort=None):
 
         # --- Load data
-        if arrays is None:
-            data, meta = self.prepare_next_array(split=split, cohort=cohort)
-            arrays = self.load_dict(data=data, infos={
-                'point': [meta['coord'], 0.5, 0.5], 
-                'shape': [1, 512, 512]})
+        data, meta = self.prepare_next_array(split=split, cohort=cohort)
+        arrays = self.load_dict(data=data, infos={
+            'point': [meta['coord'], 0.5, 0.5], 
+            'shape': shape})
 
-        else:
-            pass
+        # --- Preprocess
+        arrays = self.preprocess(arrays, meta)
 
-        # --- Normalize
-        arrays['dat'] = arrays['dat'].clip(min=-256, max=512) / 256
+        return arrays
 
-        # --- Convert label to 0 and 1
-        arrays['bet'] = (arrays['bet'] == 2).astype('uint8')
+    def preprocess(self, arrays, meta, **kwargs):
 
-        # --- Return (x, y)
-        return arrays['dat'], arrays['bet']
+        return arrays
 
     def print_ljust(self, s, SIZE=80, END='\r'):
 
@@ -327,7 +333,9 @@ class Client():
 #     CLASSES=2)
 # ===================================================================================
 # client.load_summary()
-# client.prepare_cohorts(fold=0)
+# client.prepare_cohorts(fold=0, cohorts={
+#     1: lambda meta : meta[1] & ~meta[2],
+#     2: lambda meta : meta[2]})
 # client.set_sampling_rates(rates={
 #     1: 0.5,
 #     2: 0.5})
