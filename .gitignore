@@ -5,3 +5,4 @@ __pycache__
 *.hdf5
 *.ipynb_checkpoints/
 temp/
+docs/notebooks/setenv.py
