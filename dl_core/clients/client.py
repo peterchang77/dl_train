@@ -307,6 +307,23 @@ class Client():
 
         return arrays
 
+    def generator(self, shape, split, batch_size):
+        """
+        Method to wrap the self.get() method in a Python generator for training input
+
+        """
+        while True:
+
+            xs, ys = [], []
+
+            for i in range(batch_size):
+
+                arrays = self.get(shape=shape, split=split) 
+                xs.append(arrays['dat'])
+                ys.append(arrays['lbl'][..., 0])
+
+            yield np.stack(xs), np.stack(ys)
+
     def print_ljust(self, s, SIZE=80, END='\r'):
 
         print(s.ljust(SIZE), end=END)
