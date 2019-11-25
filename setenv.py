@@ -19,6 +19,7 @@ def prepare_data(DS_PATH, DS_NAME, ignore_existing=False):
     
     # --- Set DL_CLIENT_SUMMARY_PATH
     os.environ['DL_CLIENT_SUMMARY_PATH'] = '%s/pkls/summary.pkl' % DS_PATH
+    os.environ['DS_PATH'] = DS_PATH
     
     if os.path.exists(DS_PATH) and not ignore_existing:
         return
