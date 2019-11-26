@@ -70,11 +70,11 @@ def unzip_data(fname, dst):
         print('\rExtracting zip archive: %05.3f MB / %05.3f MB' % (unzip_size / 1e6, total_size / 1e6), end=' ', flush=True)
         zf.extract(f, '%s/%s' % (dst, f.filename))
 
-def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICE=0):
+def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICES=0):
     
     prepare_path(DL_PATH) 
     
     if DS_PATH is not None:
         prepare_data(DS_PATH, DS_NAME, ignore_existing)
 
-    os.environ['CUDA_VISIBLE_DEVICE'] = CUDA_VISIBLE_DEVICE
+    os.environ['CUDA_VISIBLE_DEVICES'] = CUDA_VISIBLE_DEVICES
