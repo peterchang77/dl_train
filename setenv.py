@@ -1,4 +1,5 @@
 import os, sys, subprocess 
+from zipfile import ZipFile
 
 def prepare_path(DL_PATH):
     
@@ -29,27 +30,45 @@ def prepare_data(DS_PATH, DS_NAME, ignore_existing=False):
 
     assert DS_NAME in URLS, 'ERROR provided dataset name is not recognized'
     
-    download_and_unzip_data(URLS[DS_NAME], DS_PATH)
+    download_and_unzip_data(URLS[DS_NAME], DS_PATH, DS_NAME)
     
-def download_and_unzip_data(URL, DST):
+def download_and_unzip_data(URL, DST, DS_NAME):
     
     # --- Download
-    os.makedirs(DST, exist_ok=True)
     zip_ = '%s/raw.zip' % DST
-    
-    args = ['wget', '-O']
-    args.append(zip_)
-    args.append(URL)
-    
-    subprocess.run(args)
+    os.makedirs(DST, exist_ok=True)
+    download_data(URL, zip_, DS_NAME)
     
     # --- Unzip
-    args = ['unzip', '-o']
-    args.append(zip_)
-    args.append('-d')
-    args.append(DST)
+    unzip_data(zip_, DST)
+    
+def download_data(url, dst, DS_NAME):
+    
+    r = requests.get(url, stream=True)
 
-    subprocess.run(args)
+    total_size = int(r.headers.get('content-length', 0))
+    block_size = 32768
+    dload_size = 0
+
+    with open(dst, 'wb') as f:
+        for data in r.iter_content(block_size):
+            dload_size += len(data)
+            print('\rDownloading %s dataset to %s: %05.3f MB / %05.3f MB' % (DS_NAME, dst, dload_size / 1e6, total_size / 1e6), end=' ', flush=True)
+            f.write(data)
+            
+def unzip_data(fname, dst):
+    
+    zf = ZipFile(fname)
+
+    fnames = zf.infolist()
+    total_size = sum([f.file_size for f in fnames])
+    unzip_size = 0
+
+    for f in fnames:
+        
+        unzip_size += f.file_size
+        print('\rExtracting zip archive: %05.3f MB / %05.3f MB' % (unzip_size / 1e6, total_size / 1e6), end=' ', flush=True)
+        zf.extract(f, '%s/%s' % (dst, f.filename))
 
 def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICE=0):
     
