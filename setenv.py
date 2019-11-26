@@ -65,10 +65,10 @@ def unzip_data(fname, dst):
     unzip_size = 0
 
     for f in fnames:
-        
-        unzip_size += f.file_size
-        print('\rExtracting zip archive: %05.3f MB / %05.3f MB' % (unzip_size / 1e6, total_size / 1e6), end=' ', flush=True)
-        zf.extract(f, '%s/%s' % (dst, f.filename))
+        if f.filename[-1] != '/':
+            unzip_size += f.file_size
+            print('\rExtracting zip archive: %05.3f MB / %05.3f MB' % (unzip_size / 1e6, total_size / 1e6), end=' ', flush=True)
+            zf.extract(f, dst)
 
 def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICES=0):
     
