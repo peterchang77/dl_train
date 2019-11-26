@@ -288,7 +288,13 @@ class Client():
         # --- Increment counter
         c['count'] += 1
 
-        return data, {'coord': coord, 'index': index, 'split': split, 'cohort': cohort}
+        # --- Finalize meta
+        meta = {'coord': coord, 'index': index, 'split': split, 'cohort': cohort}
+        for k in ['mu', 'sd']:
+            if k in self.meta:
+                meta[k] = self.meta[k][index]
+
+        return data, meta
 
     def get(self, shape, split=None, cohort=None):
 

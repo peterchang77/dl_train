@@ -25,7 +25,7 @@ def prepare_data(DS_PATH, DS_NAME, ignore_existing=False):
         return
     
     URLS = {
-        'brats': ''}
+        'brats': 'https://www.dropbox.com/s/wuady574manrwew/brats.zip?dl=1'}
 
     assert DS_NAME in URLS, 'ERROR provided dataset name is not recognized'
     
@@ -35,23 +35,27 @@ def download_and_unzip_data(URL, DST):
     
     # --- Download
     os.makedirs(DST, exist_ok=True)
-    zip = '%s/raw.zip' % DST
+    zip_ = '%s/raw.zip' % DST
     
     args = ['wget', '-O']
-    args.append(zip)
+    args.append(zip_)
     args.append(URL)
     
     subprocess.run(args)
     
     # --- Unzip
     args = ['unzip', '-o']
-    args.append(zip)
+    args.append(zip_)
     args.append('-d')
     args.append(DST)
 
-def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False):
+    subprocess.run(args)
+
+def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICE=0):
     
     prepare_path(DL_PATH) 
     
     if DS_PATH is not None:
         prepare_data(DS_PATH, DS_NAME, ignore_existing)
+
+    os.environ['CUDA_VISIBLE_DEVICE'] = CUDA_VISIBLE_DEVICE
