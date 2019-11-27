@@ -102,4 +102,4 @@ def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=Fal
     if DS_PATH is not None:
         prepare_data(DS_PATH, DS_NAME, ignore_existing)
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = CUDA_VISIBLE_DEVICES
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(CUDA_VISIBLE_DEVICES)
