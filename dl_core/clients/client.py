@@ -5,7 +5,7 @@ from dl_core.utils import *
 
 class Client():
 
-    def __init__(self, **kwargs):
+    def __init__(self, DS_PATH=None, PK_FILE=None):
         """
         Method to set default variables and paths
 
@@ -26,7 +26,7 @@ class Client():
         self.set_training_rates()
 
         # --- Prepare paths
-        self.init_vars(**kwargs)
+        self.init_vars(DS_PATH=DS_PATH, PK_FILE=PK_FILE)
 
         if os.path.exists(self.PK_FILE or ''):
             self.load_summary()

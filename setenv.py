@@ -1,4 +1,4 @@
-import os, sys, requests, subprocess 
+import os, sys, requests, subprocess, time
 from zipfile import ZipFile
 
 def prepare_path(DL_PATH):
@@ -53,8 +53,12 @@ def download_data(url, dst, DS_NAME):
     with open(dst, 'wb') as f:
         for data in r.iter_content(block_size):
             dload_size += len(data)
-            print('\rDownloading %s dataset to %s: %05.3f MB / %05.3f MB' % (DS_NAME, dst, dload_size / 1e6, total_size / 1e6), end=' ', flush=True)
+            printp('Downloading %s dataset to %s (%05.3f MB / %05.3f MB)' % 
+                (DS_NAME, dst, dload_size / 1e6, total_size / 1e6), dload_size / total_size)
             f.write(data)
+
+    printd('Completed download of %s dataset to %s (%05.3f MB / %05.3f MB)' % 
+        (DS_NAME, dst, dload_size / 1e6, total_size / 1e6))
             
 def unzip_data(fname, dst):
     
@@ -67,8 +71,29 @@ def unzip_data(fname, dst):
     for f in fnames:
         if f.filename[-1] != '/':
             unzip_size += f.file_size
-            print('\rExtracting zip archive: %05.3f MB / %05.3f MB' % (unzip_size / 1e6, total_size / 1e6), end=' ', flush=True)
+            printp('Extracting zip archive (%05.3f MB / %05.3f MB)' % 
+                (unzip_size / 1e6, total_size / 1e6), unzip_size / total_size)
             zf.extract(f, dst)
+
+    printd('Completed extraction (%05.3f MB / %05.3f MB)' % 
+            (unzip_size / 1e6, total_size / 1e6))
+
+def printd(s, ljust=120, flush=False):
+
+    t = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()) 
+    s = '\r[ %s ] %s' % (t, s)
+    print(s.ljust(ljust), flush=flush)
+
+def printp(s, progress, pattern='%0.3f', SIZE=20, ljust=120, flush=False):
+
+    t = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()) 
+    a = ''.join(['='] * int(SIZE * progress))
+    b = ''.join(['.'] * (SIZE - len(a) - 1))
+    c = '>' if progress < 1 else ''
+
+    pattern = '\r[ %s ] |%s%s%s| ' + pattern + '%% : %s'
+    s = pattern % (t, a, c, b, progress * 100, s)
+    print(s.ljust(ljust), flush=flush, end=' ')
 
 def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICES=0):
     

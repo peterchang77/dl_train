@@ -1,6 +1,6 @@
 import time
 
-def clear_line(SIZE=200, flush=True):
+def clear_line(SIZE=200, flush=False):
     """
     Method to clear current line with empty spaces
 
@@ -8,7 +8,7 @@ def clear_line(SIZE=200, flush=True):
     c = '\r'.join([' '] * 200)
     print(c, flush=flush, end=' ')
 
-def printd(s, ljust=80, flush=True):
+def printd(s, ljust=80, flush=False):
     """
     Method to print output with timestamp
 
@@ -17,7 +17,7 @@ def printd(s, ljust=80, flush=True):
     s = '\r[ %s ] %s' % (t, s)
     print(s.ljust(ljust), flush=flush)
 
-def printr(s, ljust=80, flush=True):
+def printr(s, ljust=80, flush=False):
     """
     Method to print output with timestamp + continuous refresh on same line
 
@@ -26,7 +26,7 @@ def printr(s, ljust=80, flush=True):
     s = '\r[ %s ] %s' % (t, s)
     print(s.ljust(ljust), flush=flush, end=' ')
 
-def printp(s, progress, pattern='%0.3f', SIZE=20, ljust=80, flush=True):
+def printp(s, progress, pattern='%0.3f', SIZE=20, ljust=80, flush=False):
     """
     Method to print output with timestamp + progress bar 
 
