@@ -45,7 +45,7 @@ class Client():
             'DS_PATH': lambda x : x,
             'PK_FILE': lambda x : '%s/pkls/summary.pkl' % x}
 
-        self.DS_PATH = os.environ['PWD']
+        self.DS_PATH = os.environ['pwd']
 
         for var in ['DS_PATH', 'PK_FILE']:
 
