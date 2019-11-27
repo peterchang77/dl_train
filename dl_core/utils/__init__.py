@@ -1,1 +1,1 @@
-from dl_core.utils.utils import imshow 
+from dl_core.utils.printer import clear_line, printd, printr, printp

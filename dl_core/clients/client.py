@@ -1,11 +1,20 @@
 import os, glob, pickle
 import numpy as np
 from dl_core.io import hdf5
+from dl_core.utils import *
 
 class Client():
 
-    def __init__(self, SUMMARY_PATH=None):
+    def __init__(self, **kwargs):
+        """
+        Method to set default variables and paths
 
+        :params
+
+          (str) DS_PATH : path to dataset root 
+          (str) PK_FILE : path to summary Pickle file
+
+        """
         self.data = None 
         self.meta = {} 
 
@@ -16,11 +25,35 @@ class Client():
         self.sampling_rates = None 
         self.set_training_rates()
 
-        # --- Prepare summary path
-        VAR = 'DL_CLIENT_SUMMARY_PATH'
-        self.SUMMARY_PATH = SUMMARY_PATH if VAR not in os.environ else os.environ[VAR]
-        if os.path.exists(self.SUMMARY_PATH or ''):
+        # --- Prepare paths
+        self.init_vars(**kwargs)
+
+        if os.path.exists(self.PK_FILE or ''):
             self.load_summary()
+
+    def init_vars(self, **kwargs):
+        """
+        Method to initialize variables with the following prioritization:
+
+          (1) Variable passed as argument (kwargs)
+          (2) Existing shell os.environ variable 
+          (3) Default path relate to root (DS_PATH)
+          (4) Current directory
+
+        """
+        DEFAULTS = {
+            'DS_PATH': lambda x : x,
+            'PK_FILE': lambda x : '%s/pkls/summary.pkl' % x}
+
+        self.DS_PATH = os.environ['PWD']
+
+        for var in ['DS_PATH', 'PK_FILE']:
+
+            arg = kwargs[var] if var in kwargs else None
+            env = os.environ[var] if var in os.environ else None
+            default = DEFAULTS[var](self.DS_PATH)
+
+            setattr(self, var, arg or env or default)
 
     def check_data_is_loaded(func):
         """
@@ -30,25 +63,30 @@ class Client():
         def wrapper(self, *args, **kwargs):
 
             if self.data is None:
-                self.print_ljust('WARNING data has not been loaded, will attempt load now', END='\n')
                 self.load_summary()
-                self.print_ljust('WARNING data has been successfully loaded', END='\r')
 
             return func(self, *args, **kwargs)
 
         return wrapper
 
-    def make_summary(self, query, CLASSES=2, N_FOLDS=5, SUMMARY_PATH='./pkls/summary.pkl'):
+    def make_summary(self, query, CLASSES=2, N_FOLDS=5, PK_FILE=None):
         """
         Method to read all data and make summary dictionary 
+
+        Each key-value pair in the query dict represents a wildcard supported glob() query relative to self.DS_PATH
+
+        By default, the following assumptions are made (please modify as needed for you project):
+
+          * query['dat'] ==> primary data source (used to calculate volume statistics e.g. mu, sd, ...)
+          * query['lbl'] ==> primary mask source (used to calculate distribution of disease process)
 
         :params
 
           (dict) query : {
 
-            'root': '/path/to/root/dir',
             'dat': [query_00],
-            'lbl': [query_01], ...
+            'lbl': [query_01],
+            [custom key]: [custom query], ...
 
           }
 
@@ -60,6 +98,8 @@ class Client():
             'meta': {
               'index': [0, 0, 0, ..., 1, 1, 1, ...],
               'coord': [0, 1, 2, ..., 0, 1, 2, ...],
+              'mu': [...],                              # mu of each individual dat volume
+              'sd': [...],                              # sd of each individual dat volume
               0: [1, 1, 0, 0, 1, ...],                  # presence of class == 0 at slice pos
               1: [1, 1, 0, 0, 1, ...],                  # presence of class == 1 at slice pos
               ...
@@ -69,25 +109,18 @@ class Client():
         IMPORTANT: this is a default template; please modify as needed for your data
 
         """
-        assert 'root' in query
-        assert len(query) > 1
-
-        root = query.pop('root')
         keys = sorted(query.keys())
-
         q = query.pop(keys[0])
-        matches = glob.glob('%s/**/%s' % (root, q), recursive=True)
+        matches = glob.glob('%s/**/%s' % (self.DS_PATH, q), recursive=True)
 
         DATA = []
         META = {c: [] for c in range(CLASSES + 1)}
-        META['index'] = []
-        META['coord'] = []
-        META['mu'] = []
-        META['sd'] = []
+        META.update({k: [] for k in ['index', 'coord', 'mu', 'sd']})
+        N = len(self.DS_PATH) + 1
 
         for n, m in enumerate(matches):
 
-            self.print_ljust('CREATING SUMMARY (%07i/%07i): %s' % (n + 1, len(matches), m))
+            printp('Creating summary...', (n + 1) / len(matches))
 
             d = {keys[0]: m}
             b = os.path.dirname(m)
@@ -100,10 +133,10 @@ class Client():
                     d[key] = ms[0]
 
                 elif len(ms) == 0:
-                    self.print_ljust('ERROR no match found: %s/%s' % (b, query[key]), END='\n')
+                    printd('ERROR no match found: %s/%s' % (b, query[key]))
 
                 else: 
-                    self.print_ljust('ERROR more than a single match found: %s/%s' % (b, query[key]), END='\n')
+                    printd('ERROR more than a single match found: %s/%s' % (b, query[key]))
 
             # --- Caculate summary meta information
             if len(d) == len(keys):
@@ -126,7 +159,7 @@ class Client():
                 # --- Aggregate index/coord information
                 META['index'].append(np.ones(data.shape[0], dtype='int') * len(DATA))
                 META['coord'].append(np.arange(data.shape[0]) / (data.shape[0] - 1))
-                DATA.append(d)
+                DATA.append(d[N:])
 
         # --- Set validation fold (N-folds)
         valid = np.arange(len(META['index'])) % N_FOLDS
@@ -137,24 +170,22 @@ class Client():
         META = {k: np.concatenate(v) for k, v in META.items()}
 
         # --- Serialize
-        PKL = self.SUMMARY_PATH or SUMMARY_PATH
-        os.makedirs(os.path.dirname(PKL), exist_ok=True)
-        pickle.dump({'data': DATA, 'meta': META}, open(PKL, 'wb'))
+        fname = PK_FILE or PK_FILE
+        os.makedirs(os.path.dirname(fname), exist_ok=True)
+        pickle.dump({'data': DATA, 'meta': META}, open(fname, 'wb'))
 
         self.data = DATA
         self.meta = META
 
         # --- Final output
-        self.print_final('FOUND A TOTAL OF: %i PATIENTS | %i SLICES' % (len(DATA), len(META['coord'])))
+        printd('Summary complete: %i patients | %i slices' % (len(DATA), len(META['coord'])))
 
-    def load_summary(self, SUMMARY_PATH='./pkls/summary.pkl'):
+    def load_summary(self, PK_FILE=None):
 
-        PKL = self.SUMMARY_PATH or SUMMARY_PATH
-        if not os.path.exists(PKL):
-            print('ERROR provided Pickle file not found: %s' % PKL)
-            return
+        fname = PK_FILE or self.PK_FILE
+        assert os.path.exists(fname),'ERROR provided Pickle file not found: %s' % fname
 
-        d = pickle.load(open(PKL, 'rb'))
+        d = pickle.load(open(fname, 'rb'))
         self.data = d['data']
         self.meta = d['meta']
 
@@ -169,10 +200,10 @@ class Client():
         ext = data.split('.')[-1]
 
         if ext in LOAD_FUNC:
-            return LOAD_FUNC[ext](data, **kwargs)
+            return LOAD_FUNC[ext]('%s/%s' % (self.DS_PATH, data), **kwargs)
 
         else:
-            print('ERROR provided extension is not supported: %s' % ext)
+            printd('ERROR provided extension is not supported: %s' % ext)
             return None, {} 
 
     def load_dict(self, data, **kwargs):
@@ -330,32 +361,15 @@ class Client():
 
             yield np.stack(xs), np.stack(ys)
 
-    def print_ljust(self, s, SIZE=80, END='\r'):
-
-        print(s.ljust(SIZE), end=END)
-
-    def print_final(self, s, SIZE=80):
-
-        h = ''.join(['='] * SIZE)
-        c = ''.join([' '] * 200)
-
-        print(c, end='\r')
-        print(h)
-        self.print_ljust(s, SIZE=SIZE, END='\n')
-        print(h)
-
 # ===================================================================================
-# client = Client(SUMMARY_PATH='../../data/pkls/summary.pkl')
+# client = Client(DS_PATH='../../data')
 # ===================================================================================
 # client.make_summary(
 #     query={
-#         'root': '../../data/hdfs',
-#         'dat': 'dat.hdf5',
-#         'bet': 'bet.hdf5'},
-#     LABELED='bet',
+#         'dat': 'hdfs/*/dat.hdf5',
+#         'lbl': 'hdfs/*/bet.hdf5'},
 #     CLASSES=2)
 # ===================================================================================
-# client.load_summary()
 # client.prepare_cohorts(fold=0, cohorts={
 #     1: lambda meta : meta[1] & ~meta[2],
 #     2: lambda meta : meta[2]})
@@ -364,6 +378,6 @@ class Client():
 #     2: 0.5})
 # ===================================================================================
 # for i in range(10000):
-#     print('Running iteration: %04i' % i, end='\r')
+#     printp('Running iteration: %04i' % i, i / 9999)
 #     x, y = client.get()
 # ===================================================================================

@@ -40,7 +40,8 @@ def imshow(dat, lbl=None, radius=1, vm=None, title=None, figsize=(7, 7)):
     if m is not None:
         if m.max() > 0:
 
-            masks = [perim(m == c, radius=radius) for c in range(m.max())]
+            perim = lambda msk, radius : ndimage.binary_dilation(msk, iterations=radius) ^ (msk > 0)
+            masks = [perim(m == c, radius) for c in range(m.max())]
             masks = np.stack(masks, axis=-1)
             x = imoverlay(x, masks) 
 
@@ -123,9 +124,3 @@ def gray_to_rgb(dat, max_val=1, percentile=0, vm=None):
 
     return dat.astype(dtype)
 
-def perim(msk, radius=1):
-    """
-    Method to create msk perimeter
-
-    """
-    return ndimage.binary_dilation(msk, iterations=radius) ^ (msk > 0)
