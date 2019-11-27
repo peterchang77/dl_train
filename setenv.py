@@ -2,6 +2,18 @@ import os, sys, requests, subprocess, time
 from zipfile import ZipFile
 
 def prepare_path(DL_PATH):
+
+    # --- Check default locations
+    if DL_PATH is None:
+
+        if os.getcwd().split('/')[-4] == 'dl_core':
+            DL_PATH = '../../'
+
+        elif glob.glob('/home/*/python/dl_core') > 0:
+            DL_PATH = sorted(glob.glob('/home/*/python/dl_core'))[0]
+
+        else:
+            DL_PATH = '%s/python/dl_core' % os.environ['HOME']
     
     # --- Pull rep
     if not os.path.exists(DL_PATH):
@@ -18,9 +30,8 @@ def prepare_path(DL_PATH):
 
 def prepare_data(DS_PATH, DS_NAME, ignore_existing=False):
     
-    # --- Set DL_CLIENT_SUMMARY_PATH
-    os.environ['DL_CLIENT_SUMMARY_PATH'] = '%s/pkls/summary.pkl' % DS_PATH
-    os.environ['DS_PATH'] = DS_PATH
+    # --- Set DS_PATH 
+    os.environ['DS_PATH'] = DS_PATH or '/data/raw/%s' % DS_NAME
     
     if os.path.exists(DS_PATH) and not ignore_existing:
         return
@@ -91,15 +102,12 @@ def printp(s, progress, pattern='%0.3f', SIZE=20, ljust=120, flush=False):
     b = ''.join(['.'] * (SIZE - len(a) - 1))
     c = '>' if progress < 1 else ''
 
-    pattern = '\r[ %s ] |%s%s%s| ' + pattern + '%% : %s'
+    pattern = '\r[ %s ] [%s%s%s] ' + pattern + '%% : %s'
     s = pattern % (t, a, c, b, progress * 100, s)
     print(s.ljust(ljust), flush=flush, end=' ')
 
-def prepare_environment(DL_PATH, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICES=0):
+def prepare_environment(DL_PATH=None, DS_PATH=None, DS_NAME=None, ignore_existing=False, CUDA_VISIBLE_DEVICES=0):
     
     prepare_path(DL_PATH) 
-    
-    if DS_PATH is not None:
-        prepare_data(DS_PATH, DS_NAME, ignore_existing)
-
+    prepare_data(DS_PATH, DS_NAME, ignore_existing)
     os.environ['CUDA_VISIBLE_DEVICES'] = str(CUDA_VISIBLE_DEVICES)

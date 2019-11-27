@@ -30,7 +30,7 @@ def printp(s, progress, pattern='%0.3f', SIZE=20, ljust=80, flush=False):
     """
     Method to print output with timestamp + progress bar 
 
-    |========>.....| 64.2l3% : Awaiting download...
+    [========>.....] 64.2l3% : Awaiting download...
 
     :params
 
@@ -42,6 +42,6 @@ def printp(s, progress, pattern='%0.3f', SIZE=20, ljust=80, flush=False):
     b = ''.join(['.'] * (SIZE - len(a) - 1))
     c = '>' if progress < 1 else ''
 
-    pattern = '\r[ %s ] |%s%s%s| ' + pattern + '%% : %s'
+    pattern = '\r[ %s ] [%s%s%s] ' + pattern + '%% : %s'
     s = pattern % (t, a, c, b, progress * 100, s)
     print(s.ljust(ljust), flush=flush, end=' ')
