@@ -1,4 +1,4 @@
-import os, sys, requests, subprocess, time
+import glob, os, sys, requests, subprocess, time
 from zipfile import ZipFile
 
 def prepare_path(DL_PATH):
