@@ -9,7 +9,7 @@ def prepare_path(DL_PATH):
         if os.getcwd().split('/')[-4] == 'dl_core':
             DL_PATH = '../../'
 
-        elif glob.glob('/home/*/python/dl_core') > 0:
+        elif len(glob.glob('/home/*/python/dl_core')) > 0:
             DL_PATH = sorted(glob.glob('/home/*/python/dl_core'))[0]
 
         else:
@@ -22,7 +22,7 @@ def prepare_path(DL_PATH):
         
     # --- Update repo
     else:
-        args = ['git', '-c', DL_PATH, 'pull', 'origin', 'master']
+        args = ['git', '-C', DL_PATH, 'pull', 'origin', 'master']
         subprocess.run(args)
         
     if DL_PATH not in sys.path:
@@ -31,7 +31,8 @@ def prepare_path(DL_PATH):
 def prepare_data(DS_PATH, DS_NAME, ignore_existing=False):
     
     # --- Set DS_PATH 
-    os.environ['DS_PATH'] = DS_PATH or '/data/raw/%s' % DS_NAME
+    DS_PATH = DS_PATH or '/data/raw/%s' % DS_NAME
+    os.environ['DS_PATH'] = DS_PATH
     
     if os.path.exists(DS_PATH) and not ignore_existing:
         return
