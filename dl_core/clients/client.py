@@ -159,7 +159,7 @@ class Client():
                 # --- Aggregate index/coord information
                 META['index'].append(np.ones(data.shape[0], dtype='int') * len(DATA))
                 META['coord'].append(np.arange(data.shape[0]) / (data.shape[0] - 1))
-                DATA.append(d[N:])
+                DATA.append({k: v[N:] for k, v in d.items()})
 
         # --- Set validation fold (N-folds)
         valid = np.arange(len(META['index'])) % N_FOLDS
@@ -170,7 +170,7 @@ class Client():
         META = {k: np.concatenate(v) for k, v in META.items()}
 
         # --- Serialize
-        fname = PK_FILE or PK_FILE
+        fname = PK_FILE or self.PK_FILE
         os.makedirs(os.path.dirname(fname), exist_ok=True)
         pickle.dump({'data': DATA, 'meta': META}, open(fname, 'wb'))
 
@@ -200,7 +200,7 @@ class Client():
         ext = data.split('.')[-1]
 
         if ext in LOAD_FUNC:
-            return LOAD_FUNC[ext]('%s/%s' % (self.DS_PATH, data), **kwargs)
+            return LOAD_FUNC[ext](data, **kwargs)
 
         else:
             printd('ERROR provided extension is not supported: %s' % ext)
@@ -314,7 +314,7 @@ class Client():
 
         index = self.meta['index'][i[c['count']]]
         coord = self.meta['coord'][i[c['count']]]
-        data = self.data[index]
+        data = {k: '%s/%s' % (self.DS_PATH, v) for k, v in self.data[index].items()} 
 
         # --- Increment counter
         c['count'] += 1
@@ -366,8 +366,8 @@ class Client():
 # ===================================================================================
 # client.make_summary(
 #     query={
-#         'dat': 'hdfs/*/dat.hdf5',
-#         'lbl': 'hdfs/*/bet.hdf5'},
+#         'dat': 'dat.hdf5',
+#         'lbl': 'bet.hdf5'},
 #     CLASSES=2)
 # ===================================================================================
 # client.prepare_cohorts(fold=0, cohorts={
@@ -377,7 +377,7 @@ class Client():
 #     1: 0.5,
 #     2: 0.5})
 # ===================================================================================
-# for i in range(10000):
-#     printp('Running iteration: %04i' % i, i / 9999)
-#     x, y = client.get()
+# for i in range(500):
+#     printp('Running iteration: %04i' % (i + 1), i / 499)
+#     arrays = client.get(shape=[1, 512, 512])
 # ===================================================================================
