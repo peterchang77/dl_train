@@ -6,8 +6,8 @@ def prepare_path(DL_PATH):
     # --- Check default locations
     if DL_PATH is None:
 
-        if os.getcwd().split('/')[-4] == 'dl_core':
-            DL_PATH = '../../'
+        if os.getcwd().find('/dl_core/') > -1:
+            DL_PATH = '%s/dl_core' % os.getcwd().split('/dl_core/')[0]
 
         elif len(glob.glob('/home/*/python/dl_core')) > 0:
             DL_PATH = sorted(glob.glob('/home/*/python/dl_core'))[0]
