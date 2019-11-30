@@ -12,8 +12,8 @@ As above, it is recommended to start by launching tutorials directly in Google C
 If you decide to run this code and/or the `dl_core` library on local compute (or a personal cloud instance) you must prepare your development environment. Generically, this will include:
 
 1. Cloning a copy of this repository and adding the repository root directory to `$PYTHONPATH`.
-2. (*optional*) Downloading any required data for a specific tutorial.
-3. (*optional*) Set the requisite shell environment variables to make dataset visible to Python `client`.
+2. *(optional)* Downloading any required data for a specific tutorial.
+3. *(optional)* Set the requisite shell environment variables to make dataset visible to Python `client`.
 
 ## Using the `setenv.py` script
 
