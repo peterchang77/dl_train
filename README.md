@@ -53,7 +53,7 @@ The following arguments may be passed:
 
 ## Manual configuration
 
-For persistent configuration between Python / Jupyter sessions, it is recommended to simply set the required paths as shell environment variabels: `$DS_PATH`, `$PK_FILE`. In addition, the location of the `dl_core` repository (`$DL_PATH`) can be added directly to the `$PYTHONPATH` variable. Given this, the following demonstrates example lines that can be added to `~/.bashrc` (or any other preferred method to set shell environment variables):
+For persistent configuration between Python / Jupyter sessions, it is recommended to simply set the required paths as shell environment variables: `$DS_PATH`, `$PK_FILE`. In addition, the location of the `dl_core` repository (`$DL_PATH`) can be added directly to the `$PYTHONPATH` variable. Given this, the following demonstrates example lines that can be added to `~/.bashrc` (or any other preferred method to set shell environment variables):
 
 ```
 # Set dl_core library paths
