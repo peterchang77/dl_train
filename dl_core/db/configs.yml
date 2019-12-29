@@ -23,3 +23,13 @@
 #   port: 27017
 #
 # ===============================================
+
+query:
+
+    root: /home/peter/python/dl_core/data/hdfs
+    dat: dat.hdf5
+    lbl: lbl.hdf5
+
+columns: []
+
+csv_file: /home/peter/python/dl_core/dl_core/db/temp.csv

@@ -109,57 +109,41 @@ class Client():
         IMPORTANT: this is a default template; please modify as needed for your data
 
         """
-        keys = sorted(query.keys())
-        q = query.pop(keys[0])
-        matches = glob.glob('%s/**/%s' % (self.DS_PATH, q), recursive=True)
+        # --- Perform query
+        query['root'] = self.DS_PATH
+        matches, _ = find_matching_files(query)
 
+        # --- Aggregate information
         DATA = []
         META = {c: [] for c in range(CLASSES + 1)}
         META.update({k: [] for k in ['index', 'coord', 'mu', 'sd']})
         N = len(self.DS_PATH) + 1
+        n = 0
 
-        for n, m in enumerate(matches):
+        for sid, match in matches.items():
 
-            printp('Creating summary...', (n + 1) / len(matches))
+            n += 1
+            printp('Creating summary...', n / len(matches))
 
-            d = {keys[0]: m}
-            b = os.path.dirname(m)
+            # --- Aggregate slice-by-slice label information
+            if 'lbl' in match:
+                data, _ = self.load(match['lbl'])
 
-            # --- Find other matches
-            for key in keys[1:]:
-                ms = glob.glob('%s/%s' % (b, query[key]))
+                for c in range(CLASSES + 1):
+                    s = np.sum(data == c, axis=(1, 2, 3)) > 0
+                    META[c].append(s)
 
-                if len(ms) == 1: 
-                    d[key] = ms[0]
+            # --- Aggregate slice-by-slice data information
+            if 'dat' in match:
+                data, _ = self.load(match['dat'])
 
-                elif len(ms) == 0:
-                    printd('ERROR no match found: %s/%s' % (b, query[key]))
+                META['mu'].append(data.mean(axis=(0, 1, 2)).reshape(1, -1))
+                META['sd'].append(data.std(axis=(0, 1, 2)).reshape(1, -1))
 
-                else: 
-                    printd('ERROR more than a single match found: %s/%s' % (b, query[key]))
-
-            # --- Caculate summary meta information
-            if len(d) == len(keys):
-
-                # --- Aggregate slice-by-slice label information
-                if 'lbl' in d:
-                    data, _ = self.load(d['lbl'])
-
-                    for c in range(CLASSES + 1):
-                        s = np.sum(data == c, axis=(1, 2, 3)) > 0
-                        META[c].append(s)
-
-                # --- Aggregate slice-by-slice data information
-                if 'dat' in d:
-                    data, _ = self.load(d['dat'])
-
-                    META['mu'].append(data.mean(axis=(0, 1, 2)).reshape(1, -1))
-                    META['sd'].append(data.std(axis=(0, 1, 2)).reshape(1, -1))
-
-                # --- Aggregate index/coord information
-                META['index'].append(np.ones(data.shape[0], dtype='int') * len(DATA))
-                META['coord'].append(np.arange(data.shape[0]) / (data.shape[0] - 1))
-                DATA.append({k: v[N:] for k, v in d.items()})
+            # --- Aggregate index/coord information
+            META['index'].append(np.ones(data.shape[0], dtype='int') * len(DATA))
+            META['coord'].append(np.arange(data.shape[0]) / (data.shape[0] - 1))
+            DATA.append({k: v[N:] for k, v in match.items()})
 
         # --- Set validation fold (N-folds)
         valid = np.arange(len(META['index'])) % N_FOLDS

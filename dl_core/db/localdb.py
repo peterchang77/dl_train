@@ -1,4 +1,5 @@
 import os, yaml, pandas as pd 
+from dl_core.utils import find_matching_files
 
 # ===================================================================
 # OVERVIEW
@@ -36,6 +37,10 @@ class CacheDB():
         configs = configs or {}
         if yml_file is not None:
             configs.update(yaml.load(open(yml_file), Loader=yaml.FullLoader))
+
+        # --- Save attributes
+        self.configs = configs
+        self.columns = configs.get('columns', []) 
 
         self.initialize(**configs)
 
@@ -88,7 +93,7 @@ class CacheDB():
 
 class CacheCSV(CacheDB):
 
-    def initialize(self, csv_file, refresh_rows=False, refresh_cols=True, **kwargs):
+    def initialize(self, csv_file, refresh_sids=False, refresh_cols=True, **kwargs):
         """
         Method to initialize CSV-backed Cache DB
 
@@ -97,15 +102,62 @@ class CacheCSV(CacheDB):
 
         """
         df = pd.read_csv(csv_file) if os.path.exists(csv_file) else pd.DataFrame()
-        self.configs = configs
+
+        # --- Split df into sids and meta
+        self.df = self.df_split(df)
+        
+        # --- Refresh sids 
+        if self.df['sids'].shape[0] == 0 or refresh_sids:
+            self.refresh_sids()
+
+        # --- Refresh cols
+        if self.df['sids'].shape[0] != self.df['meta'].shape[0] or refresh_cols:
+            pass
+
+    def df_split(self, df):
+        """
+        Method to split DataFrame into `sids` + `meta`
+
+        """
+        split = {}
+        split['sids'] = df[[k for k in df if k.find('fname') > -1]]
+        split['meta'] = df[[k for k in df if k not in split['sids']]]
+
+        return split
+
+    def df_merge(self, df):
+        """
+        Method to merge DataFrame
+
+        """
+        pass
+
+    def refresh_sids(self):
+        """
+        Method to refresh sids by updating with results of query
+
+        """
+        matches = find_matching_files(self.configs['query'])
+        self.df['sids'] = pd.DataFrame.from_dict(matches, orient='index')
+
+    def refresh_cols(self):
+        """
+        Method to refresh cols
+
+        """
+        # --- Update columns
+        for k in self.columns:
+            if k not in self.df['meta']:
+                self.df['meta'] = None
+
+        # --- Find rows with a None column entry
+
+        # --- Update rows
 
     def cursor(self):
         """
         Method to create Python generator to iterate through dataset
         
         """
-        for sid, row in self.df.iterrows():
-
-            fnames = {k: v for k, v in row.items() if k.find('fname') > -1}
-
+        for sid, fnames in self.df['sids'].iterrows():
             yield sid, fnames
