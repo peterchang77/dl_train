@@ -1,0 +1,25 @@
+# ===============================================
+# CONFIGS YAML FILE STRUCTURE
+# ===============================================
+# 
+# query:
+#
+#   root: /path/to/root
+#   dat: dat.hdf5
+#   lbl: lbl.hdf5
+#   ...
+# 
+# columns:
+#
+#   - meta_00
+#   - meta_01
+#   ...
+#
+# csv_file: /path/to/configs.csv
+#
+# mongo:
+#
+#   host: 127.0.0.1
+#   port: 27017
+#
+# ===============================================
