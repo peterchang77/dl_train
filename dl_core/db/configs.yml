@@ -28,7 +28,7 @@ query:
 
     root: /home/peter/python/dl_core/data/hdfs
     dat: dat.hdf5
-    lbl: lbl.hdf5
+    lbl: bet.hdf5
 
 columns: []
 

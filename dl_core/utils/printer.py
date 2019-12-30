@@ -1,5 +1,16 @@
 import time
 
+def verbose(func):
+
+    def wrapper(*args, **kwargs):
+
+        verbose = kwargs.pop('verbose') if 'verbose' in kwargs else True
+        if verbose:
+            func(*args, **kwargs)
+
+    return wrapper
+
+@verbose
 def clear_line(SIZE=200, flush=False):
     """
     Method to clear current line with empty spaces
@@ -8,6 +19,7 @@ def clear_line(SIZE=200, flush=False):
     c = '\r'.join([' '] * 200)
     print(c, flush=flush, end=' ')
 
+@verbose
 def printd(s, ljust=80, flush=False):
     """
     Method to print output with timestamp
@@ -17,6 +29,7 @@ def printd(s, ljust=80, flush=False):
     s = '\r[ %s ] %s' % (t, s)
     print(s.ljust(ljust), flush=flush)
 
+@verbose
 def printr(s, ljust=80, flush=False):
     """
     Method to print output with timestamp + continuous refresh on same line
@@ -26,6 +39,7 @@ def printr(s, ljust=80, flush=False):
     s = '\r[ %s ] %s' % (t, s)
     print(s.ljust(ljust), flush=flush, end=' ')
 
+@verbose
 def printp(s, progress, pattern='%0.3f', SIZE=20, ljust=80, flush=False):
     """
     Method to print output with timestamp + progress bar 

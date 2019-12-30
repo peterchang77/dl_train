@@ -1,5 +1,5 @@
 import os, yaml, pandas as pd 
-from dl_core.utils import find_matching_files
+from dl_core.utils import * 
 
 # ===================================================================
 # OVERVIEW
@@ -63,20 +63,6 @@ class CacheDB():
         for key, func in self.UPDATE_FUNCTIONS.items():
             func(sid, arrs, **kwargs)
 
-    def to_json(self, max_rows=None):
-        """
-        Method to serialize contents of DB to JSON
-
-        """
-        pass
-
-    def to_csv(self):
-        """
-        Method to serialize contents of DB to CSV
-
-        """
-        pass
-
     def query(self):
         """
         Method to query db for data
@@ -101,7 +87,11 @@ class CacheCSV(CacheDB):
           (2) Populate cols (meta functions)
 
         """
-        df = pd.read_csv(csv_file) if os.path.exists(csv_file) else pd.DataFrame()
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file, index_col='sid')
+        else: 
+            df = pd.DataFrame()
+            df.index.name = 'sid'
 
         # --- Split df into sids and meta
         self.df = self.df_split(df)
@@ -120,25 +110,38 @@ class CacheCSV(CacheDB):
 
         """
         split = {}
-        split['sids'] = df[[k for k in df if k.find('fname') > -1]]
+        split['sids'] = df[[k for k in df if k[:6] == 'fname-']]
         split['meta'] = df[[k for k in df if k not in split['sids']]]
+
+        # --- Rename `fnames-`
+        split['sids'] = split['sids'].rename(columns={k: k[6:] for k in split['sids'].columns})
 
         return split
 
-    def df_merge(self, df):
+    def df_merge(self):
         """
         Method to merge DataFrame
 
         """
-        pass
+        # --- Rename `fnames-`
+        c = {k: 'fname-%s' % k for k in self.df['sids'].columns}
+
+        return pd.concat((self.df['sids'].rename(columns=c), self.df['meta']), axis=1, sort=True)
 
     def refresh_sids(self):
         """
         Method to refresh sids by updating with results of query
 
         """
-        matches = find_matching_files(self.configs['query'])
+        matches, _ = find_matching_files(self.configs['query'], verbose=False)
         self.df['sids'] = pd.DataFrame.from_dict(matches, orient='index')
+
+        # --- Propogate indices if meta is empty 
+        if self.df['meta'].shape[0] == 0:
+            self.df['meta'] = pd.DataFrame(index=self.df['sids'].index)
+
+        self.df['sids'].index.name = 'sid'
+        self.df['meta'].index.name = 'sid'
 
     def refresh_cols(self):
         """
@@ -161,3 +164,45 @@ class CacheCSV(CacheDB):
         """
         for sid, fnames in self.df['sids'].iterrows():
             yield sid, fnames
+
+    def to_json(self, max_rows=None):
+        """
+        Method to serialize contents of DB to JSON
+
+        :return 
+        
+          (dict) combined = {
+
+            [sid_00]: {
+                'fnames': {'dat': ..., 'lbl': ....},
+                'meta_00': ...,
+                'meta_01': ..., }, 
+
+            [sid_01]: {
+                'fnames': {'dat': ..., 'lbl': ....},
+                'meta_00': ...,
+                'meta_01': ...,}, 
+            ...
+
+        }
+
+        """
+        meta = self.df['meta'].to_dict(orient='index')
+        sids = self.df['sids'].to_dict(orient='index')
+        sids = {k: {'fnames': v} for k, v in sids.items()}
+
+        return {k: {**sids[k], **meta[k]} for k in sids}
+
+    def to_csv(self, csv=None):
+        """
+        Method to serialize contents of DB to CSV
+
+        """
+        csv = csv or self.configs.get('csv_file', None)
+        if csv is not None:
+            df = self.df_merge()
+            df.to_csv(csv)
+
+# ===============================================
+# c = CacheCSV(yml_file='./configs.yml')
+# ===============================================
