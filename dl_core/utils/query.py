@@ -1,7 +1,7 @@
 import os, glob
 from dl_core.utils.printer import printp, printd
 
-def find_matching_files(query, recursive=True):
+def find_matching_files(query, recursive=True, verbose=True):
     """
     Method to find files matching query
 
@@ -19,7 +19,7 @@ def find_matching_files(query, recursive=True):
 
     for n, m in enumerate(ms):
 
-        printp('Finding matches...', (n + 1) / len(ms))
+        printp('Finding matches...', (n + 1) / len(ms), verbose=verbose)
 
         d = {keys[0]: m}
         b = os.path.dirname(m)
@@ -46,6 +46,6 @@ def find_matching_files(query, recursive=True):
         else:
             missing[sid] = d 
 
-    printd('File search complete: %i matches | %i missing' % (len(matches), len(missing)))
+    printd('File search complete: %i matches | %i missing' % (len(matches), len(missing)), verbose=verbose)
 
     return matches, missing
