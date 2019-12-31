@@ -9,7 +9,7 @@
 #   lbl: lbl.hdf5
 #   ...
 # 
-# columns:
+# headers:
 #
 #   - meta_00
 #   - meta_01
@@ -30,6 +30,6 @@ query:
     dat: dat.hdf5
     lbl: bet.hdf5
 
-columns: []
+headers: []
 
 csv_file: /home/peter/python/dl_core/dl_core/db/temp.csv

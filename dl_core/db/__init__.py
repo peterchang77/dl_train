@@ -1,1 +1,1 @@
-from dl_core.db import CacheDB
+from dl_core.db.coredb import CoreDB 
