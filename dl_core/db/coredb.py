@@ -44,7 +44,7 @@ class CoreDB():
         """
         # --- Save attributes
         self.configs = self.init_configs(configs, yml_file, csv_file) 
-        self.headers = self.configs['headers'] 
+        self.HEADERS = self.configs['headers'] 
         
         # --- Load CSV file
         self.load_csv(self.configs['csv_file'])
@@ -89,22 +89,20 @@ class CoreDB():
             df.index.name = 'sid'
 
         # --- Split df into fnames and header 
-        self.df = self.df_split(df)
+        self.fnames, self.header = self.df_split(df)
 
     def df_split(self, df):
         """
         Method to split DataFrame into `fnames` + `header`
 
         """
-        split = {}
-        split['fnames'] = df[[k for k in df if k[:6] == 'fname-']]
-        split['header'] = df[[k for k in df if k not in split['fnames']]]
+        fnames = df[[k for k in df if k[:6] == 'fname-']]
+        header = df[[k for k in df if k not in fnames]]
 
         # --- Rename `fnames-`
-        split['fnames'] = split['fnames'].rename(
-            columns={k: k[6:] for k in split['fnames'].columns})
+        fnames = fnames.rename(columns={k: k[6:] for k in fnames.columns})
 
-        return split
+        return fnames, header 
 
     def df_merge(self):
         """
@@ -112,9 +110,9 @@ class CoreDB():
 
         """
         # --- Rename `fnames-`
-        c = {k: 'fname-%s' % k for k in self.df['fnames'].columns}
+        c = {k: 'fname-%s' % k for k in self.fnames.columns}
 
-        return pd.concat((self.df['fnames'].rename(columns=c), self.df['header']), axis=1, sort=True)
+        return pd.concat((self.fnames.rename(columns=c), self.header), axis=1, sort=True)
 
     # ===================================================================
     # REFRESH | SYNC WITH FILE SYSTEM 
@@ -129,30 +127,33 @@ class CoreDB():
 
         """
         # --- Refresh rows 
-        if self.df['fnames'].shape[0] == 0 or refresh_rows:
+        if self.fnames.shape[0] == 0 or refresh_rows:
             self.refresh_rows()
 
         # --- Refresh cols
-        if self.df['fnames'].shape[0] != self.df['header'].shape[0] or refresh_cols:
+        if self.fnames.shape[0] != self.header.shape[0] or refresh_cols:
             self.refresh_cols()
 
-    def refresh_rows(self):
+    def refresh_rows(self, matches=None):
         """
         Method to refresh rows by updating with results of query
 
         """
-        if self.configs['query'] is None:
+        if self.configs['query'] is None and matches is None:
             return
 
-        matches, _ = find_matching_files(self.configs['query'], verbose=False)
-        self.df['fnames'] = pd.DataFrame.from_dict(matches, orient='index')
+        # --- Query for matches
+        if matches is None:
+            matches, _ = find_matching_files(self.configs['query'], verbose=False)
+
+        self.fnames = pd.DataFrame.from_dict(matches, orient='index')
 
         # --- Propogate indices if meta is empty 
-        if self.df['header'].shape[0] == 0:
-            self.df['header'] = pd.DataFrame(index=self.df['fnames'].index)
+        if self.header.shape[0] == 0:
+            self.header = pd.DataFrame(index=self.fnames.index)
 
-        self.df['fnames'].index.name = 'sid'
-        self.df['header'].index.name = 'sid'
+        self.fnames.index.name = 'sid'
+        self.header.index.name = 'sid'
 
     def refresh_cols(self):
         """
@@ -160,9 +161,9 @@ class CoreDB():
 
         """
         # --- Update headers 
-        for k in self.headers:
-            if k not in self.df['header']:
-                self.df['header'] = None
+        for k in self.HEADERS:
+            if k not in self.header:
+                self.header = None
 
         # --- Find rows with a None column entry
 
@@ -177,7 +178,7 @@ class CoreDB():
         Method to create Python generator to iterate through dataset
         
         """
-        for sid, fnames in self.df['fnames'].iterrows():
+        for sid, fnames in self.fnames.iterrows():
             yield sid, fnames
 
     def update_all(self):
@@ -196,7 +197,7 @@ class CoreDB():
         NOTE: add custom header data by registering methods in HEADER_FUNCTIONS dict
 
         """
-        for h in self.headers:
+        for h in self.HEADERS:
             if h in self.HEADER_FUNCTIONS:
                 self.HEADER_FUNCTIONS[h](sid, arrs, **kwargs)
 
@@ -239,8 +240,8 @@ class CoreDB():
                     'meta_01': ...}},
 
             [sid_01]: {
-                'fnames': {...},  ==> from self.df['fnames']
-                'header': {...}}, ==> from self.df['header']
+                'fnames': {...},  ==> from self.fnames
+                'header': {...}}, ==> from self.header
 
             [sid_02]: {
                 'fnames': {...},
@@ -250,8 +251,8 @@ class CoreDB():
         }
 
         """
-        header = self.df['header'].to_dict(orient='index')
-        fnames = self.df['fnames'].to_dict(orient='index')
+        header = self.header.to_dict(orient='index')
+        fnames = self.fnames.to_dict(orient='index')
 
         # --- Extract sid, fname
         extract = lambda k : {'sid': k, 'fname': fnames[k].get('dat', None)}
