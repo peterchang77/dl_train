@@ -1,7 +1,7 @@
 import os, glob, pickle
 import numpy as np, pandas as pd
 from dl_utils import io
-from dl_utils.db import DB, find_matching_files, FUNCS
+from dl_utils.db import DB, funcs 
 from dl_utils.general import *
 
 class Client():
@@ -26,6 +26,7 @@ class Client():
         self.cohorts = {'train': {}, 'valid': {}}
         self.indices = {'train': {}, 'valid': {}}
         self.current = {'train': {}, 'valid': {}}
+        self.to_load = {'train': {}, 'valid': {}}
 
         self.apply = None
         self.sampling_rates = None 
@@ -41,7 +42,7 @@ class Client():
         """
         DEFAULTS = {
             'DS_PATH': '',
-            'DS_FILE': ''}
+            'DS_FILE': None}
 
         env = {k: os.environ[k] for k in DEFAULTS if k in os.environ}
 
@@ -58,7 +59,12 @@ class Client():
                 if ext in ['csv', 'gz']:
                     args_['DS_FILE'] = arg
 
-        return {**DEFAULTS, **env, **args_, **kwargs}
+        kwargs = {**DEFAULTS, **env, **args_, **kwargs}
+
+        kwargs['DS_FILE'] = kwargs['DS_FILE'] or \
+            '{}/csvs/summary.csv.gz'.format(kwargs['DS_PATH'])
+
+        return kwargs
 
     def check_data_is_loaded(func):
         """
@@ -79,7 +85,7 @@ class Client():
         DS_FILE = DS_FILE or self.DS_FILE
 
         if os.path.exists(DS_FILE):
-            self.df = pd.read_csv(DS_FILE)
+            self.df = pd.read_csv(DS_FILE, index_col='sid')
 
     def to_csv(self, DS_FILE=None):
 
@@ -87,37 +93,7 @@ class Client():
         os.makedirs(os.path.dirname(DS_FILE), exist_ok=True)
         self.df.to_csv(DS_FILE)
 
-    def init_funcs(self, funcs_def=None, **kwargs):
-        """
-        :params
-
-          (list) funcs  : list of function names from dl_utils.db.funcs
-
-        """
-        if funcs_def is None:
-
-            funcs_def = [{
-
-                'func': 'coord',
-                'kwargs': {'lbl': 'lbl'}}, {
-
-                'func': 'stats',
-                'kwargs': {'dat': 'dat'}}, {
-
-                'func': 'label',
-                'kwargs': {'lbl': 'lbl', 'classes': kwargs.get('classes', 2)}
-
-            }]
-
-        # -- Parse into funcs, kwargs
-        self.apply = {
-            'funcs': [FUNCS[d['func']] for d in funcs_def],
-            'kwargs': [d['kwargs'] for d in funcs_def]}
-
-        # --- Add load function
-        self.apply['load'] = io.load
-
-    def make_summary(self, query=None, db=None, join=None, N_FOLDS=5, DS_FILE=None):
+    def make_summary(self, query=None, db=None, funcs_def='mr_train', join=None, folds=5, DS_FILE=None, **kwargs):
         """
         Method to read all data and make summary CSV file 
 
@@ -146,22 +122,16 @@ class Client():
             db = DB(configs={'query': query})
 
         # --- Apply 
-        if self.apply is None:
-            self.init_funcs()
+        kwargs = funcs.init(funcs_def, load=io.load, **kwargs)
+        df = db.apply(**kwargs)
 
-        df = db.apply(**self.apply)
-
-        # --- Join fnames + valid
-        if join is None:
-            join = db.fnames.columns.tolist() + ['valid']
-            series = db.fnames
-        else:
-            join.append('valid')
-            series = db.df_merge(rename=False)
-
-        valids = np.arange(series.shape[0]) % N_FOLDS
+        # --- Create series (fnames + valid)
+        series = db.df_merge(rename=False)
+        valids = np.arange(series.shape[0]) % folds 
         series['valid'] = valids[np.random.permutation(valids.size)]
 
+        # --- Join series (fnames + valid)
+        join = (join or db.fnames.columns.tolist()) + ['valid']
         cols = join + df.columns.tolist()
         df = df.join(series[join])
         df = df[cols]
@@ -173,38 +143,13 @@ class Client():
         # --- Final output
         printd('Summary complete: %i patients | %i slices' % (series.shape[0], df.shape[0]))
 
-    def load(self, data, **kwargs):
-
-        if type(data) is not str:
-            return data
-
-        LOAD_FUNC = {
-            'hdf5': self.load_hdf5}
-
-        ext = data.split('.')[-1]
-
-        if ext in LOAD_FUNC:
-            return LOAD_FUNC[ext](data, **kwargs)
-
-        else:
-            printd('ERROR provided extension is not supported: %s' % ext)
-            return None, {} 
-
-    def load_dict(self, data, **kwargs):
-
-        assert type(data) is dict
+    def load(self, infos, row, split, cohort, **kwargs):
 
         arrays = {}
-        for key, val in data.items():
-            arrays[key], _ = self.load(data=val, **kwargs)
+        for key in self.to_load[split][cohort]:
+            arrays[key] = io.load(row[key], infos=infos.copy())[0]
 
         return arrays
-
-    def load_hdf5(self, fname, **kwargs):
-
-        infos = kwargs['infos'] if 'infos' in kwargs else None
-
-        return hdf5.load(fname, infos)
 
     @check_data_is_loaded
     def load_data_in_memory(self):
@@ -214,33 +159,40 @@ class Client():
     @check_data_is_loaded
     def prepare_cohorts(self, fold, cohorts):
         """
-        Method to separate out data into specific cohorts, the sampling rate of which
-        will be defined in self.sampling_rates
+        Method to separate out data into specific cohorts for stratified sampling.
+
+        :params
+
+          (int) fold    : fold to use as validation 
+          (vec) cohorts : boolean vector equal in size to self.df.shape[0]
+
+        Note the sampling rate is defined in self.sampling_rates.
 
         IMPORTANT: this is a default template; please modify as needed for your data
 
         """
-        for k in cohorts:
-            assert k in self.meta
-
         for split in ['train', 'valid']:
 
             # --- Determine mask corresponding to current split 
             if fold == -1:
-                mask = np.ones(self.meta['valid'].size, dtype='bool')
+                mask = np.ones(self.df.shape[0], dtype='bool')
             elif split == 'train': 
-                mask = self.meta['valid'] != fold
+                mask = self.df['valid'] != fold
             elif split == 'valid':
-                mask = self.meta['valid'] == fold
+                mask = self.df['valid'] == fold
+
+            mask = mask.to_numpy()
 
             # --- Define cohorts based on cohorts lambda functions
-            for key, f in cohorts.items():
-                self.cohorts[split][key] = np.nonzero(f(self.meta) & mask)[0]
+            for key, s in cohorts.items():
+                self.cohorts[split][key] = np.nonzero(np.array(s) & mask)[0]
 
             # --- Randomize indices for next epoch
             for cohort in self.cohorts[split]:
                 self.current[split][cohort] = {'epoch': -1, 'count': 0}
                 self.prepare_next_epoch(split=split, cohort=cohort)
+
+        self.set_files_to_load()
 
     @check_data_is_loaded
     def set_sampling_rates(self, rates={}):
@@ -254,6 +206,8 @@ class Client():
         lower = np.array([0] + vals[:-1])
         upper = np.array(vals[1:] + [1])
 
+        # TODO: FIX
+
         self.sampling_rates = {
             'cohorts': keys,
             'lower': np.array(lower),
@@ -265,6 +219,28 @@ class Client():
         assert 'valid' in rates
 
         self.training_rates = rates
+
+    def set_files_to_load(self, cohorts=None):
+
+        # --- Determine default filenames
+        if cohorts is None:
+            fnames = [c for c, f in self.df.iloc[0].items() if os.path.exists(str(f))]
+            cohorts = {}
+
+        for split in ['train', 'valid']:
+            for c in self.cohorts[split]:
+                self.to_load[split][c] = cohorts.get(c, fnames)
+
+    def set_infos(self, infos):
+
+        self.infos = infos
+
+    def get_infos(self, row, **kwargs):
+
+        infos_ = self.infos.copy()
+        infos_['point'] = [row['coord'], 0.5, 0.5]
+
+        return infos_
 
     def prepare_next_epoch(self, split, cohort):
 
@@ -296,35 +272,26 @@ class Client():
             c = self.current[split][cohort]
             i = self.indices[split][cohort]
 
-        index = self.meta['index'][i[c['count']]]
-        coord = self.meta['coord'][i[c['count']]]
-        data = {k: '%s/%s' % (self.DS_PATH, v) for k, v in self.data[index].items()} 
+        row = self.df.iloc[i[c['count']]]
 
         # --- Increment counter
         c['count'] += 1
 
-        # --- Finalize meta
-        meta = {'coord': coord, 'index': index, 'split': split, 'cohort': cohort}
-        for k in ['mu', 'sd']:
-            if k in self.meta:
-                meta[k] = self.meta[k][index]
+        return {'row': row, 'split': split, 'cohort': cohort} 
 
-        return data, meta
-
-    def get(self, shape, split=None, cohort=None):
+    def get(self, split=None, cohort=None):
 
         # --- Load data
-        data, meta = self.prepare_next_array(split=split, cohort=cohort)
-        arrays = self.load_dict(data=data, infos={
-            'point': [meta['coord'], 0.5, 0.5], 
-            'shape': shape})
+        kwargs = self.prepare_next_array(split=split, cohort=cohort)
+        infos_ = self.get_infos(**kwargs)
+        arrays = self.load(infos=infos_, **kwargs)
 
         # --- Preprocess
-        arrays = self.preprocess(arrays, meta)
+        arrays = self.preprocess(arrays, **kwargs)
 
         return arrays
 
-    def preprocess(self, arrays, meta, **kwargs):
+    def preprocess(self, arrays, **kwargs):
 
         return arrays
 
