@@ -1,59 +1,64 @@
 import os, glob, pickle
-import numpy as np
-from dl_core.io import hdf5
-from dl_core.utils import *
+import numpy as np, pandas as pd
+from dl_utils import io
+from dl_utils.db import DB, find_matching_files, FUNCS
+from dl_utils.general import *
 
 class Client():
 
-    def __init__(self, DS_PATH=None, PK_FILE=None):
+    def __init__(self, *args, **kwargs):
         """
         Method to set default variables and paths
 
         :params
 
           (str) DS_PATH : path to dataset root 
-          (str) PK_FILE : path to summary Pickle file
+          (str) DS_FILE : path to summary CSV file
 
         """
-        self.data = None 
-        self.meta = {} 
+        # --- Parse args
+        kwargs = self.parse_args(*args, **kwargs)
+        self.DS_PATH = kwargs['DS_PATH']
+        self.DS_FILE = kwargs['DS_FILE']
+
+        self.df = None
 
         self.cohorts = {'train': {}, 'valid': {}}
         self.indices = {'train': {}, 'valid': {}}
         self.current = {'train': {}, 'valid': {}}
 
+        self.apply = None
         self.sampling_rates = None 
         self.set_training_rates()
 
-        # --- Prepare paths
-        self.init_vars(DS_PATH=DS_PATH, PK_FILE=PK_FILE)
+        if os.path.exists(self.DS_FILE):
+            self.load_csv()
 
-        if os.path.exists(self.PK_FILE or ''):
-            self.load_summary()
-
-    def init_vars(self, **kwargs):
+    def parse_args(self, *args, **kwargs):
         """
-        Method to initialize variables with the following prioritization:
-
-          (1) Variable passed as argument (kwargs)
-          (2) Existing shell os.environ variable 
-          (3) Default path relate to root (DS_PATH)
-          (4) Current directory
+        Method to parse arguments into final kwargs dict 
 
         """
         DEFAULTS = {
-            'DS_PATH': lambda x : x,
-            'PK_FILE': lambda x : '%s/pkls/summary.pkl' % x}
+            'DS_PATH': '',
+            'DS_FILE': ''}
 
-        self.DS_PATH = os.getcwd() 
+        env = {k: os.environ[k] for k in DEFAULTS if k in os.environ}
 
-        for var in ['DS_PATH', 'PK_FILE']:
+        # --- Convert args to args_ dict 
+        args_ = {}
+        for arg in args:
 
-            arg = kwargs[var] if var in kwargs else None
-            env = os.environ[var] if var in os.environ else None
-            default = DEFAULTS[var](self.DS_PATH)
+            if type(arg) is str:
 
-            setattr(self, var, arg or env or default)
+                if os.path.isdir(arg):
+                    args_['DS_PATH'] = arg
+
+                ext = arg.split('.')[-1]
+                if ext in ['csv', 'gz']:
+                    args_['DS_FILE'] = arg
+
+        return {**DEFAULTS, **env, **args_, **kwargs}
 
     def check_data_is_loaded(func):
         """
@@ -62,33 +67,59 @@ class Client():
         """
         def wrapper(self, *args, **kwargs):
 
-            if self.data is None:
-                self.load_summary()
+            if self.df is None:
+                self.load_csv()
 
             return func(self, *args, **kwargs)
 
         return wrapper
 
-    def make_summary(self, query, CLASSES=2, N_FOLDS=5, PK_FILE=None):
+    def load_csv(self, DS_FILE=None):
+
+        DS_FILE = DS_FILE or self.DS_FILE
+
+        if os.path.exists(DS_FILE):
+            self.df = pd.read_csv(DS_FILE)
+
+    def to_csv(self, DS_FILE=None):
+
+        DS_FILE = DS_FILE or self.DS_FILE
+        os.makedirs(os.path.dirname(DS_FILE), exist_ok=True)
+        self.df.to_csv(DS_FILE)
+
+    def init_funcs(self, funcs_def=None, **kwargs):
         """
-        Method to read all data and make summary dictionary 
-
-        Each key-value pair in the query dict represents a wildcard supported glob() query relative to self.DS_PATH
-
-        By default, the following assumptions are made (please modify as needed for you project):
-
-          * query['dat'] ==> primary data source (used to calculate volume statistics e.g. mu, sd, ...)
-          * query['lbl'] ==> primary mask source (used to calculate distribution of disease process)
-
         :params
 
-          (dict) query : {
+          (list) funcs  : list of function names from dl_utils.db.funcs
 
-            'dat': [query_00],
-            'lbl': [query_01],
-            [custom key]: [custom query], ...
+        """
+        if funcs_def is None:
 
-          }
+            funcs_def = [{
+
+                'func': 'coord',
+                'kwargs': {'lbl': 'lbl'}}, {
+
+                'func': 'stats',
+                'kwargs': {'dat': 'dat'}}, {
+
+                'func': 'label',
+                'kwargs': {'lbl': 'lbl', 'classes': kwargs.get('classes', 2)}
+
+            }]
+
+        # -- Parse into funcs, kwargs
+        self.apply = {
+            'funcs': [FUNCS[d['func']] for d in funcs_def],
+            'kwargs': [d['kwargs'] for d in funcs_def]}
+
+        # --- Add load function
+        self.apply['load'] = io.load
+
+    def make_summary(self, query=None, db=None, join=None, N_FOLDS=5, DS_FILE=None):
+        """
+        Method to read all data and make summary CSV file 
 
         :return
 
@@ -110,68 +141,37 @@ class Client():
 
         """
         # --- Perform query
-        query['root'] = self.DS_PATH
-        matches, _ = find_matching_files(query)
+        if db is None:
+            query = {**{'root': self.DS_PATH}, **query}
+            db = DB(configs={'query': query})
 
-        # --- Aggregate information
-        DATA = []
-        META = {c: [] for c in range(CLASSES + 1)}
-        META.update({k: [] for k in ['index', 'coord', 'mu', 'sd']})
-        N = len(self.DS_PATH) + 1
-        n = 0
+        # --- Apply 
+        if self.apply is None:
+            self.init_funcs()
 
-        for sid, match in matches.items():
+        df = db.apply(**self.apply)
 
-            n += 1
-            printp('Creating summary...', n / len(matches))
+        # --- Join fnames + valid
+        if join is None:
+            join = db.fnames.columns.tolist() + ['valid']
+            series = db.fnames
+        else:
+            join.append('valid')
+            series = db.df_merge(rename=False)
 
-            # --- Aggregate slice-by-slice label information
-            if 'lbl' in match:
-                data, _ = self.load(match['lbl'])
+        valids = np.arange(series.shape[0]) % N_FOLDS
+        series['valid'] = valids[np.random.permutation(valids.size)]
 
-                for c in range(CLASSES + 1):
-                    s = np.sum(data == c, axis=(1, 2, 3)) > 0
-                    META[c].append(s)
-
-            # --- Aggregate slice-by-slice data information
-            if 'dat' in match:
-                data, _ = self.load(match['dat'])
-
-                META['mu'].append(data.mean(axis=(0, 1, 2)).reshape(1, -1))
-                META['sd'].append(data.std(axis=(0, 1, 2)).reshape(1, -1))
-
-            # --- Aggregate index/coord information
-            META['index'].append(np.ones(data.shape[0], dtype='int') * len(DATA))
-            META['coord'].append(np.arange(data.shape[0]) / (data.shape[0] - 1))
-            DATA.append({k: v[N:] for k, v in match.items()})
-
-        # --- Set validation fold (N-folds)
-        valid = np.arange(len(META['index'])) % N_FOLDS
-        valid = valid[np.random.permutation(valid.size)]
-        META['valid'] = [np.ones(c.size) * v for c, v in zip(META['coord'], valid)]
-
-        # --- Concatenate all vectors
-        META = {k: np.concatenate(v) for k, v in META.items()}
+        cols = join + df.columns.tolist()
+        df = df.join(series[join])
+        df = df[cols]
 
         # --- Serialize
-        fname = PK_FILE or self.PK_FILE
-        os.makedirs(os.path.dirname(fname), exist_ok=True)
-        pickle.dump({'data': DATA, 'meta': META}, open(fname, 'wb'))
-
-        self.data = DATA
-        self.meta = META
+        self.df = df
+        self.to_csv(DS_FILE)
 
         # --- Final output
-        printd('Summary complete: %i patients | %i slices' % (len(DATA), len(META['coord'])))
-
-    def load_summary(self, PK_FILE=None):
-
-        fname = PK_FILE or self.PK_FILE
-        assert os.path.exists(fname),'ERROR provided Pickle file not found: %s' % fname
-
-        d = pickle.load(open(fname, 'rb'))
-        self.data = d['data']
-        self.meta = d['meta']
+        printd('Summary complete: %i patients | %i slices' % (series.shape[0], df.shape[0]))
 
     def load(self, data, **kwargs):
 

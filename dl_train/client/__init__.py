@@ -1,7 +1,7 @@
 import os, glob, importlib
 from types import ModuleType
 
-def load_modules(repo='dl_train', submodule='models', allows=[]):
+def load_modules(repo='dl_train', submodule='client', allows=[]):
     """
     Method to compile submodule from all available libraries
 
