@@ -29,6 +29,7 @@ class Client():
 
         self.specs = None
         self.infos = {} 
+        self.tiles = tuple([False] * 4) 
         self.apply = None
 
         self.sampling_rates = None 
@@ -244,12 +245,26 @@ class Client():
 
         self.training_rates = rates
 
-    def set_specs(self, specs, yml_file=None):
+    def set_specs(self, specs, tiles=(False, False, False), yml_file=None):
 
         assert 'xs' in specs
         assert 'ys' in specs
 
         self.specs = specs
+        self.tiles = tuple(list(tiles) + [False])
+
+    def get_specs(self):
+
+        extract = lambda x : {
+            'shape': [None if t else s for s, t in zip(x['shape'], self.tiles)],
+            'dtype': x['dtype']}
+
+        specs_ = {'xs': {}, 'ys': {}} 
+        for k in specs_:
+            for key, spec in self.specs[k].items():
+                specs_[k][key] = extract(spec)
+
+        return specs_
 
     def get_infos(self, row, shape):
 
