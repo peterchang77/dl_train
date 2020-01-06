@@ -26,13 +26,16 @@ class Client():
         self.cohorts = {'train': {}, 'valid': {}}
         self.indices = {'train': {}, 'valid': {}}
         self.current = {'train': {}, 'valid': {}}
-        self.to_load = {'train': {}, 'valid': {}}
 
+        self.specs = None
+        self.infos = {} 
         self.apply = None
+
         self.sampling_rates = None 
         self.set_training_rates()
 
         if os.path.exists(self.DS_FILE):
+            printd('Loading client')
             self.load_csv()
 
     def parse_args(self, *args, **kwargs):
@@ -86,12 +89,20 @@ class Client():
 
         if os.path.exists(DS_FILE):
             self.df = pd.read_csv(DS_FILE, index_col='sid')
+            self.determine_loadable_columns()
 
     def to_csv(self, DS_FILE=None):
 
         DS_FILE = DS_FILE or self.DS_FILE
         os.makedirs(os.path.dirname(DS_FILE), exist_ok=True)
         self.df.to_csv(DS_FILE)
+
+    def determine_loadable_columns(self, cohorts=None):
+        """
+        Method to determine loadable columns (e.g. valid file names)
+
+        """
+        self.loadable_columns = [c for c, f in self.df.iloc[0].items() if os.path.exists(str(f))]
 
     def make_summary(self, query=None, db=None, funcs_def='mr_train', join=None, folds=5, DS_FILE=None, **kwargs):
         """
@@ -143,11 +154,23 @@ class Client():
         # --- Final output
         printd('Summary complete: %i patients | %i slices' % (series.shape[0], df.shape[0]))
 
-    def load(self, infos, row, split, cohort, **kwargs):
+    def load(self, row, split, cohort, **kwargs):
 
-        arrays = {}
-        for key in self.to_load[split][cohort]:
-            arrays[key] = io.load(row[key], infos=infos.copy())[0]
+        arrays = {'xs': {}, 'ys': {}}
+        for k in arrays:
+            for key, spec in self.specs[k].items():
+
+                # --- Load from file 
+                if spec['loads'] in self.loadable_columns:
+                    infos = self.get_infos(row, spec['shape']) 
+                    arrays[k][key] = io.load(row[spec['loads']], infos=infos)[0]
+
+                # --- Load from row
+                else:
+                    if spec['loads'] is not None:
+                        arrays[k][key] = np.array(row[spec['loads']])
+                    else:
+                        arrays[k][key] = np.ones(spec['shape'], dtype=spec['dtype'])
 
         return arrays
 
@@ -171,6 +194,8 @@ class Client():
         IMPORTANT: this is a default template; please modify as needed for your data
 
         """
+        printd('Preparing client')
+
         for split in ['train', 'valid']:
 
             # --- Determine mask corresponding to current split 
@@ -192,21 +217,20 @@ class Client():
                 self.current[split][cohort] = {'epoch': -1, 'count': 0}
                 self.prepare_next_epoch(split=split, cohort=cohort)
 
-        self.set_files_to_load()
-
     @check_data_is_loaded
     def set_sampling_rates(self, rates={}):
+
+        printd('Setting sampling rates')
 
         assert set(self.cohorts['train'].keys()) == set(rates.keys())
         assert sum(list(rates.values())) == 1
 
         keys = sorted(rates.keys())
         vals = [rates[k] for k in keys]
+        vals = [sum(vals[:n]) for n in range(len(vals) + 1)]
 
-        lower = np.array([0] + vals[:-1])
-        upper = np.array(vals[1:] + [1])
-
-        # TODO: FIX
+        lower = np.array(vals[:-1])
+        upper = np.array(vals[1:])
 
         self.sampling_rates = {
             'cohorts': keys,
@@ -220,25 +244,18 @@ class Client():
 
         self.training_rates = rates
 
-    def set_files_to_load(self, cohorts=None):
+    def set_specs(self, specs, yml_file=None):
 
-        # --- Determine default filenames
-        if cohorts is None:
-            fnames = [c for c, f in self.df.iloc[0].items() if os.path.exists(str(f))]
-            cohorts = {}
+        assert 'xs' in specs
+        assert 'ys' in specs
 
-        for split in ['train', 'valid']:
-            for c in self.cohorts[split]:
-                self.to_load[split][c] = cohorts.get(c, fnames)
+        self.specs = specs
 
-    def set_infos(self, infos):
-
-        self.infos = infos
-
-    def get_infos(self, row, **kwargs):
+    def get_infos(self, row, shape):
 
         infos_ = self.infos.copy()
         infos_['point'] = [row['coord'], 0.5, 0.5]
+        infos_['shape'] = shape[:3]
 
         return infos_
 
@@ -283,34 +300,55 @@ class Client():
 
         # --- Load data
         kwargs = self.prepare_next_array(split=split, cohort=cohort)
-        infos_ = self.get_infos(**kwargs)
-        arrays = self.load(infos=infos_, **kwargs)
+        arrays = self.load(**kwargs)
 
         # --- Preprocess
         arrays = self.preprocess(arrays, **kwargs)
 
+        # --- Ensure that spec matches
+        for k in ['xs', 'ys']:
+            for key in arrays[k]:
+                shape = self.specs[k][key]['shape']
+                dtype = self.specs[k][key]['dtype']
+                arrays[k][key] = arrays[k][key].reshape(shape).astype(dtype)
+
         return arrays
+
+    def test(self, n=1000):
+        """
+        Method to test self.get() method
+
+        """
+        for i in range(n):
+            printp('Loading | {:04d}'.format(i), (i + 1) / n)
+            self.get()
+
+        printd('Completed {} self.get() iterations successfully'.format(n))
 
     def preprocess(self, arrays, **kwargs):
 
-        return arrays
+        return arrays 
 
-    def generator(self, shape, split, batch_size):
+    def generator(self, split, batch_size):
         """
         Method to wrap the self.get() method in a Python generator for training input
 
         """
         while True:
 
-            xs, ys = [], []
+            xs = []
+            ys = []
 
             for i in range(batch_size):
 
-                arrays = self.get(shape=shape, split=split) 
-                xs.append(arrays['dat'])
-                ys.append(arrays['lbl'][..., 0])
+                arrays = self.get(split=split) 
+                xs.append(arrays['xs'])
+                ys.append(arrays['ys'])
 
-            yield np.stack(xs), np.stack(ys)
+            xs = {k: np.stack([x[k] for x in xs]) for k in self.specs['xs']}
+            ys = {k: np.stack([y[k] for y in ys]) for k in self.specs['ys']}
+
+            yield xs, ys
 
 # ===================================================================================
 # client = Client(DS_PATH='../../data')
