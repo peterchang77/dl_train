@@ -23,7 +23,6 @@ class Client():
 
         self.df = None
 
-        self.cohorts = {'train': {}, 'valid': {}}
         self.indices = {'train': {}, 'valid': {}}
         self.current = {'train': {}, 'valid': {}}
 
@@ -155,7 +154,7 @@ class Client():
         # --- Final output
         printd('Summary complete: %i patients | %i slices' % (series.shape[0], df.shape[0]))
 
-    def load(self, row, split, cohort, **kwargs):
+    def load(self, row, **kwargs):
 
         arrays = {'xs': {}, 'ys': {}}
         for k in arrays:
@@ -204,26 +203,53 @@ class Client():
                 mask = np.ones(self.df.shape[0], dtype='bool')
             elif split == 'train': 
                 mask = self.df['valid'] != fold
+                mask = mask.to_numpy()
             elif split == 'valid':
                 mask = self.df['valid'] == fold
-
-            mask = mask.to_numpy()
+                mask = mask.to_numpy()
 
             # --- Define cohorts based on cohorts lambda functions
             for key, s in cohorts.items():
-                self.cohorts[split][key] = np.nonzero(np.array(s) & mask)[0]
+                self.indices[split][key] = np.nonzero(np.array(s) & mask)[0]
 
             # --- Randomize indices for next epoch
-            for cohort in self.cohorts[split]:
+            for cohort in self.indices[split]:
                 self.current[split][cohort] = {'epoch': -1, 'count': 0}
                 self.prepare_next_epoch(split=split, cohort=cohort)
+    
+    @check_data_is_loaded
+    def print_cohorts(self):
+        """
+        Method to generate summary of cohorts
+
+        ===========================
+        TRAIN
+        ===========================
+        cohort-A: 1000
+        cohort-B: 1000
+        ...
+        ===========================
+        VALID
+        ===========================
+        cohort-A: 1000
+        cohort-B: 1000
+        ...
+
+        """
+        keys = sorted(self.indices['train'].keys())
+
+        for split in ['train', 'valid']:
+            printb(split.upper())
+            for cohort in keys:
+                size = self.indices[split][cohort].size
+                printd('{}: {:06d}'.format(cohort, size))
 
     @check_data_is_loaded
     def set_sampling_rates(self, rates={}):
 
         printd('Setting sampling rates')
 
-        assert set(self.cohorts['train'].keys()) == set(rates.keys())
+        assert set(self.indices['train'].keys()) == set(rates.keys())
         assert sum(list(rates.values())) == 1
 
         keys = sorted(rates.keys())
@@ -276,13 +302,20 @@ class Client():
 
     def prepare_next_epoch(self, split, cohort):
 
-        assert cohort in self.cohorts[split]
+        assert cohort in self.indices[split]
 
-        self.indices[split][cohort] = np.random.permutation(self.cohorts[split][cohort].size)
+        # --- Shuffle indices
+        p = np.random.permutation(self.indices[split][cohort].size)
+        self.indices[split][cohort] = self.indices[split][cohort][p]
+
+        # --- Increment current
         self.current[split][cohort]['epoch'] += 1
         self.current[split][cohort]['count'] = 0 
 
-    def prepare_next_array(self, split=None, cohort=None):
+    def prepare_next_array(self, split=None, cohort=None, row=None):
+
+        if row is not None:
+            return {'row': row, 'split': split, 'cohort': cohort}
 
         if split is None:
             split = 'train' if np.random.rand() < self.training_rates['train'] else 'valid'
@@ -294,27 +327,26 @@ class Client():
                 i = int(np.nonzero(i)[0])
                 cohort = self.sampling_rates['cohorts'][i]
             else:
-                cohort = sorted(self.cohorts[split].keys())[0]
+                cohort = sorted(self.indices[split].keys())[0]
 
         c = self.current[split][cohort]
-        i = self.indices[split][cohort]
 
-        if c['count'] > i.size - 1:
+        if c['count'] > self.indices[split][cohort].size - 1:
             self.prepare_next_epoch(split, cohort)
             c = self.current[split][cohort]
-            i = self.indices[split][cohort]
 
-        row = self.df.iloc[i[c['count']]]
+        ind = self.indices[split][cohort][c['count']]
+        row = self.df.iloc[ind]
 
         # --- Increment counter
         c['count'] += 1
 
         return {'row': row, 'split': split, 'cohort': cohort} 
 
-    def get(self, split=None, cohort=None):
+    def get(self, split=None, cohort=None, row=None):
 
         # --- Load data
-        kwargs = self.prepare_next_array(split=split, cohort=cohort)
+        kwargs = self.prepare_next_array(split=split, cohort=cohort, row=row)
         arrays = self.load(**kwargs)
 
         # --- Preprocess
@@ -329,7 +361,25 @@ class Client():
 
         return arrays
 
-    def test(self, n=1000):
+    def test_all(self, lo=0, hi=None):
+        """
+        Method to test self.get() method for all rows
+
+        """
+
+        columns = ['sid'] + list(self.df.columns)
+        to_dict = lambda row : {k: row[n] for n, k in enumerate(columns)}
+
+        count = 0
+        hi = None or self.df.shape[0]
+
+        for row in self.df.iloc[lo:hi].itertuples():
+
+            self.get(row=to_dict(row))
+            count += 1
+            printp('Loading all rows | {:06d}'.format(count), count / self.df.shape[0])
+
+    def test_get(self, n=1000):
         """
         Method to test self.get() method
 
