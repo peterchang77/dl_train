@@ -1,4 +1,4 @@
-import os, glob, pickle
+import os, glob, json
 import numpy as np, pandas as pd
 from dl_utils import io
 from dl_utils.db import DB, funcs 
@@ -34,9 +34,27 @@ class Client():
         self.sampling_rates = None 
         self.set_training_rates()
 
+        from_json = kwargs.get('from_json', './client.json')
+        if os.path.exists(from_json):
+            configs = json.load(open(from_json, 'r'))
+            for key, config in configs.items():
+                setattr(self, key, config)
+
         if os.path.exists(self.DS_FILE):
             printd('Loading client')
             self.load_csv()
+
+    def to_json(self, fname='./client.json'):
+        """
+        Method to serialize key attr as JSON
+
+        """
+        configs = {}
+
+        for attr in ['current', 'specs', 'infos', 'tiles']:
+            configs[attr] = getattr(self, attr)
+
+        json.dump(configs, open(fname, 'w'))
 
     def parse_args(self, *args, **kwargs):
         """
@@ -212,10 +230,16 @@ class Client():
             for key, s in cohorts.items():
                 self.indices[split][key] = np.nonzero(np.array(s) & mask)[0]
 
-            # --- Randomize indices for next epoch
             for cohort in self.indices[split]:
-                self.current[split][cohort] = {'epoch': -1, 'count': 0}
-                self.prepare_next_epoch(split=split, cohort=cohort)
+
+                # --- Randomize indices for next epoch
+                if cohort not in self.current[split]:
+                    self.current[split][cohort] = {'epoch': -1, 'count': 0}
+                    self.prepare_next_epoch(split=split, cohort=cohort)
+
+                # --- Reinitialize old index
+                else:
+                    self.shuffle_indices(split, cohort)
     
     @check_data_is_loaded
     def print_cohorts(self):
@@ -304,13 +328,23 @@ class Client():
 
         assert cohort in self.indices[split]
 
-        # --- Shuffle indices
-        p = np.random.permutation(self.indices[split][cohort].size)
-        self.indices[split][cohort] = self.indices[split][cohort][p]
-
         # --- Increment current
         self.current[split][cohort]['epoch'] += 1
         self.current[split][cohort]['count'] = 0 
+        self.current[split][cohort]['rseed'] = np.random.randint(2 ** 32)
+
+        # --- Random shuffle
+        self.shuffle_indices(split, cohort)
+
+    def shuffle_indices(self, split, cohort):
+
+        # --- Seed
+        np.random.seed(self.current[split][cohort]['rseed'])
+
+        # --- Shuffle indices
+        s = self.indices[split][cohort].size
+        p = np.random.permutation(s)
+        self.indices[split][cohort] = self.indices[split][cohort][p]
 
     def prepare_next_array(self, split=None, cohort=None, row=None):
 

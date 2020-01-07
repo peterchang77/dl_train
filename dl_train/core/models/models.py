@@ -7,7 +7,7 @@ from dl_utils.general import *
 # TRAIN METHODS
 # =================================================================
 
-def train(model, steps, save_freq=1000, tf_board=True, **kwargs):
+def train(model, client, steps, save_freq=1000, tf_board=True, **kwargs):
     """
     Wrapper method to run model.fit_generator(...)
 
@@ -42,7 +42,7 @@ def train(model, steps, save_freq=1000, tf_board=True, **kwargs):
         os.makedirs('./{}'.format(name), exist_ok=True)
 
     # --- Load existing weights if any
-    hdfs = glob.glob('./hdfs/*.hdf5')
+    hdfs = glob.glob('./hdf5/*.hdf5')
 
     if len(hdfs) > 0:
         offset = max([int(s[-7:-5]) for s in hdfs])
@@ -69,6 +69,7 @@ def train(model, steps, save_freq=1000, tf_board=True, **kwargs):
 
         model.fit_generator(**kwargs)
         model.save(model_name(n))
+        client.to_json()
 
 # =================================================================
 # MODEL BUILDING METHODS
