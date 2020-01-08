@@ -32,14 +32,14 @@ def dsc(weights, scale=1.0, epsilon=1):
 
     return dice
 
-def acc(weights, scale=1.0):
+def acc(weights):
 
     metric = metrics.Accuracy()
 
     def accuracy(y_true, y_pred):
 
         true = y_true[..., 0]
-        pred = backend.argmax(tf.squeeze(y_pred))
+        pred = backend.argmax(y_pred)
 
         return metric(true, pred, weights)
 
