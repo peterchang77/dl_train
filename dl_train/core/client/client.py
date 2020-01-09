@@ -120,9 +120,13 @@ class Client():
         Method to determine loadable columns (e.g. valid file names)
 
         """
-        self.loadable_columns = [c for c, f in self.df.iloc[0].items() if os.path.exists(str(f))]
+        self.loadable_columns = [c for c, f in self.df.iloc[0].items() if os.path.isfile(self.DS_PATH + str(f))]
+        
+        # --- Prepend DS_PATH
+        for col in self.loadable_columns:
+            self.df[col] = self.df[col].apply(lambda x : self.DS_PATH + x)
 
-    def make_summary(self, query=None, db=None, funcs_def='mr_train', join=None, folds=5, DS_FILE=None, **kwargs):
+    def make_summary(self, query=None, db=None, funcs_def='mr_train', join=None, folds=5, DS_PATH=None, DS_FILE=None, **kwargs):
         """
         Method to read all data and make summary CSV file 
 
@@ -158,6 +162,11 @@ class Client():
         series = db.df_merge(rename=False)
         valids = np.arange(series.shape[0]) % folds 
         series['valid'] = valids[np.random.permutation(valids.size)]
+
+        # --- Remove prefix (DS_PATH)
+        if DS_PATH is not None:
+            for fname in db.fnames.columns:
+                series[fname] = series[fname].apply(lambda x : x.replace(DS_PATH, ''))
 
         # --- Join series (fnames + valid)
         join = (join or db.fnames.columns.tolist()) + ['valid']
