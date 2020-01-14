@@ -295,7 +295,7 @@ class Client():
 
         return arrays
 
-    def test(self, n=None, lower=0, upper=None, random=True):
+    def test(self, n=None, lower=0, upper=None, random=True, cohort=None, split='train', aggregate=False):
         """
         Method to test self.get() method for all rows
 
@@ -306,21 +306,32 @@ class Client():
           (int) upper : upper bounds of row to load
 
         """
-        # --- Determine range
-        upper = upper or self.db.header.shape[0]
-        n = n or (upper - lower)
-
         # --- Determine indices
-        indices = np.arange(lower, upper)
+        upper = upper or self.db.header.shape[0]
+        indices = np.arange(lower, upper) if cohort is None else self.indices[split][cohort]
         if random:
             indices = indices[np.random.permutation(indices.size)]
+
+        n = n or (upper - lower)
         indices = indices[:n]
 
         # --- Iterate
+        keys = lambda x : {k: [] for k in self.specs[x]}
+        arrs = {'xs': keys('xs'), 'ys': keys('ys')} 
+
         for sid, fnames, header in self.db.cursor(indices=indices):
-            self.get(row={**fnames, **header})
+            arrays = self.get(row={**fnames, **header})
+
+            if aggregate:
+                for k in arrays:
+                    for key in arrs[k]:
+                        arrs[k][key].append(arrays[k][key][int(arrays[k][key].shape[0] / 2)])
 
         printd('Completed {} self.get() iterations successfully'.format(n))
+
+        if aggregate:
+            stack = lambda x : {k: np.stack(v) for k, v in x.items()}
+            return {'xs': stack(arrs['xs']), 'ys': stack(arrs['ys'])}
 
     def preprocess(self, arrays, **kwargs):
 

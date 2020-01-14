@@ -69,7 +69,7 @@ def train(model, client, steps, save_freq=1000, tf_board=True, **kwargs):
 
         model.fit_generator(**kwargs)
         model.save(model_name(step))
-        client.to_json()
+        client.to_yml()
 
 # =================================================================
 # MODEL BUILDING METHODS
