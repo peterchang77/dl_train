@@ -1,91 +1,66 @@
-import os, glob, json
+import os, glob, yaml
 import numpy as np, pandas as pd
 from dl_utils import io
-from dl_utils.db import DB, funcs 
+from dl_utils.db import DB
 from dl_utils.general import *
 
 class Client():
 
     def __init__(self, *args, **kwargs):
         """
-        Method to set default variables and paths
-
-        :params
-
-          (str) DS_PATH : path to dataset root 
-          (str) DS_FILE : path to summary CSV file
+        Method to initialize client
 
         """
-        # --- Parse args
-        kwargs = self.parse_args(*args, **kwargs)
-        self.DS_PATH = kwargs['DS_PATH']
-        self.DS_FILE = kwargs['DS_FILE']
+        # --- Serialization attributes
+        self.ATTRS = ['_db', 'current', 'rates', 'specs']
 
-        self.df = None
+        # --- Initialize existing settings from *.yml
+        fname = kwargs.pop('yml', './client.yml')
+        self.load_yml(fname)
 
-        self.indices = {'train': {}, 'valid': {}}
-        self.current = {'train': {}, 'valid': {}}
-
-        self.specs = None
-        self.infos = {} 
-        self.tiles = tuple([False] * 4) 
-        self.apply = None
-
-        self.sampling_rates = None 
+        # --- Initialize rates
+        self.set_sampling_rates()
         self.set_training_rates()
 
-        from_json = kwargs.get('from_json', './client.json')
-        if os.path.exists(from_json):
-            configs = json.load(open(from_json, 'r'))
-            for key, config in configs.items():
-                setattr(self, key, config)
+        # --- Initialize db
+        self.db = DB(*(*args, *(self._db,)), **kwargs)
+        self._db = self.db.get_files()['yml'] or self.db.get_files()['csv']
 
-        if os.path.exists(self.DS_FILE):
-            printd('Loading client')
-            self.load_csv()
-
-    def to_json(self, fname='./client.json'):
+    def load_yml(self, fname='./client.yml'):
         """
-        Method to serialize key attr as JSON
+        Method to load metadata from YML
 
         """
-        configs = {}
+        configs = {
+            '_db': None,
+            'indices': {'train': {}, 'valid': {}},
+            'current': {'train': {}, 'valid': {}},
+            'specs': {'xs': {}, 'ys': {}, 'infos': {}, 'tiles': [False] * 4, 'batch': 16},
+            'rates': {'sampling': {}, 'training': {}}}
 
-        for attr in ['current', 'specs', 'infos', 'tiles']:
-            configs[attr] = getattr(self, attr)
+        if os.path.exists(fname):
+            with open(fname, 'r') as y:
+                configs = {**configs, **yaml.load(y, Loader=yaml.FullLoader)}
 
-        json.dump(configs, open(fname, 'w'))
+        # --- Set attributes
+        for attr, config in configs.items():
+            setattr(self, attr, config)
 
-    def parse_args(self, *args, **kwargs):
+    def to_dict(self):
         """
-        Method to parse arguments into final kwargs dict 
+        Method to create dictionary of metadata
 
         """
-        DEFAULTS = {
-            'DS_PATH': '',
-            'DS_FILE': None}
+        return {attr: getattr(self, attr) for attr in self.ATTRS}
 
-        env = {k: os.environ[k] for k in DEFAULTS if k in os.environ}
+    def to_yml(self, fname='./client.yml'):
+        """
+        Method to serialize metadata to YML 
 
-        # --- Convert args to args_ dict 
-        args_ = {}
-        for arg in args:
-
-            if type(arg) is str:
-
-                if os.path.isdir(arg):
-                    args_['DS_PATH'] = arg
-
-                ext = arg.split('.')[-1]
-                if ext in ['csv', 'gz']:
-                    args_['DS_FILE'] = arg
-
-        kwargs = {**DEFAULTS, **env, **args_, **kwargs}
-
-        kwargs['DS_FILE'] = kwargs['DS_FILE'] or \
-            '{}/csvs/summary.csv.gz'.format(kwargs['DS_PATH'])
-
-        return kwargs
+        """
+        os.makedirs(os.path.dirname(fname), exist_ok=True)
+        with open(fname, 'w') as y:
+            yaml.dump(self.to_dict(), y)
 
     def check_data_is_loaded(func):
         """
@@ -94,92 +69,12 @@ class Client():
         """
         def wrapper(self, *args, **kwargs):
 
-            if self.df is None:
-                self.load_csv()
+            if self.db.fnames.size == 0:
+                self.db.load_csv()
 
             return func(self, *args, **kwargs)
 
         return wrapper
-
-    def load_csv(self, DS_FILE=None):
-
-        DS_FILE = DS_FILE or self.DS_FILE
-
-        if os.path.exists(DS_FILE):
-            self.df = pd.read_csv(DS_FILE, index_col='sid')
-            self.determine_loadable_columns()
-
-    def to_csv(self, DS_FILE=None):
-
-        DS_FILE = DS_FILE or self.DS_FILE
-        os.makedirs(os.path.dirname(DS_FILE), exist_ok=True)
-        self.df.to_csv(DS_FILE)
-
-    def determine_loadable_columns(self, cohorts=None):
-        """
-        Method to determine loadable columns (e.g. valid file names)
-
-        """
-        self.loadable_columns = [c for c, f in self.df.iloc[0].items() if os.path.isfile(self.DS_PATH + str(f))]
-        
-        # --- Prepend DS_PATH
-        for col in self.loadable_columns:
-            self.df[col] = self.df[col].apply(lambda x : self.DS_PATH + x)
-
-    def make_summary(self, query=None, db=None, funcs_def='mr_train', join=None, folds=5, DS_PATH=None, DS_FILE=None, **kwargs):
-        """
-        Method to read all data and make summary CSV file 
-
-        :return
-
-          (dict) summary : {
-
-            'data': [{paths_00}, {paths_01}, ...],
-            'meta': {
-              'index': [0, 0, 0, ..., 1, 1, 1, ...],
-              'coord': [0, 1, 2, ..., 0, 1, 2, ...],
-              'mu': [...],                              # mu of each individual dat volume
-              'sd': [...],                              # sd of each individual dat volume
-              0: [1, 1, 0, 0, 1, ...],                  # presence of class == 0 at slice pos
-              1: [1, 1, 0, 0, 1, ...],                  # presence of class == 1 at slice pos
-              ...
-            } 
-          }
-
-        IMPORTANT: this is a default template; please modify as needed for your data
-
-        """
-        # --- Perform query
-        if db is None:
-            query = {**{'root': self.DS_PATH}, **query}
-            db = DB(configs={'query': query})
-
-        # --- Apply 
-        kwargs = funcs.init(funcs_def, load=io.load, **kwargs)
-        df = db.apply(**kwargs)
-
-        # --- Create series (fnames + valid)
-        series = db.df_merge(rename=False)
-        valids = np.arange(series.shape[0]) % folds 
-        series['valid'] = valids[np.random.permutation(valids.size)]
-
-        # --- Remove prefix (DS_PATH)
-        if DS_PATH is not None:
-            for fname in db.fnames.columns:
-                series[fname] = series[fname].apply(lambda x : x.replace(DS_PATH, ''))
-
-        # --- Join series (fnames + valid)
-        join = (join or db.fnames.columns.tolist()) + ['valid']
-        cols = join + df.columns.tolist()
-        df = df.join(series[join])
-        df = df[cols]
-
-        # --- Serialize
-        self.df = df
-        self.to_csv(DS_FILE)
-
-        # --- Final output
-        printd('Summary complete: %i patients | %i slices' % (series.shape[0], df.shape[0]))
 
     def load(self, row, **kwargs):
 
@@ -188,7 +83,7 @@ class Client():
             for key, spec in self.specs[k].items():
 
                 # --- Load from file 
-                if spec['loads'] in self.loadable_columns:
+                if spec['loads'] in self.db.fnames.columns:
                     infos = self.get_infos(row, spec['shape']) 
                     arrays[k][key] = io.load(row[spec['loads']], infos=infos)[0]
 
@@ -221,18 +116,16 @@ class Client():
         IMPORTANT: this is a default template; please modify as needed for your data
 
         """
-        printd('Preparing client')
-
         for split in ['train', 'valid']:
 
             # --- Determine mask corresponding to current split 
             if fold == -1:
-                mask = np.ones(self.df.shape[0], dtype='bool')
+                mask = np.ones(self.db.header.shape[0], dtype='bool')
             elif split == 'train': 
-                mask = self.df['valid'] != fold
+                mask = self.db.header['valid'] != fold
                 mask = mask.to_numpy()
             elif split == 'valid':
-                mask = self.df['valid'] == fold
+                mask = self.db.header['valid'] == fold
                 mask = mask.to_numpy()
 
             # --- Define cohorts based on cohorts lambda functions
@@ -277,12 +170,12 @@ class Client():
                 size = self.indices[split][cohort].size
                 printd('{}: {:06d}'.format(cohort, size))
 
-    @check_data_is_loaded
-    def set_sampling_rates(self, rates={}):
+    def set_sampling_rates(self, rates=None):
 
-        printd('Setting sampling rates')
+        rates = rates or self.rates['sampling']
+        if len(rates) == 0:
+            return
 
-        assert set(self.indices['train'].keys()) == set(rates.keys())
         assert sum(list(rates.values())) == 1
 
         keys = sorted(rates.keys())
@@ -291,6 +184,8 @@ class Client():
 
         lower = np.array(vals[:-1])
         upper = np.array(vals[1:])
+
+        self.rates['sampling'] = rates
 
         self.sampling_rates = {
             'cohorts': keys,
@@ -302,20 +197,16 @@ class Client():
         assert 'train' in rates
         assert 'valid' in rates
 
-        self.training_rates = rates
+        self.rates['training'] = rates
 
-    def set_specs(self, specs, tiles=(False, False, False), yml_file=None):
+    def set_specs(self, specs):
 
-        assert 'xs' in specs
-        assert 'ys' in specs
-
-        self.specs = specs
-        self.tiles = tuple(list(tiles) + [False])
+        self.specs.update(specs)
 
     def get_specs(self):
 
         extract = lambda x : {
-            'shape': [None if t else s for s, t in zip(x['shape'], self.tiles)],
+            'shape': [None if t else s for s, t in zip(x['shape'], self.specs['tiles'])],
             'dtype': x['dtype']}
 
         specs_ = {'xs': {}, 'ys': {}} 
@@ -327,7 +218,7 @@ class Client():
 
     def get_infos(self, row, shape):
 
-        infos_ = self.infos.copy()
+        infos_ = self.specs['infos'].copy()
         infos_['point'] = [row['coord'], 0.5, 0.5]
         infos_['shape'] = shape[:3]
 
@@ -361,7 +252,7 @@ class Client():
             return {'row': row, 'split': split, 'cohort': cohort}
 
         if split is None:
-            split = 'train' if np.random.rand() < self.training_rates['train'] else 'valid'
+            split = 'train' if np.random.rand() < self.rates['training']['train'] else 'valid'
 
         if cohort is None:
             if self.sampling_rates is not None:
@@ -379,7 +270,7 @@ class Client():
             c = self.current[split][cohort]
 
         ind = self.indices[split][cohort][c['count']]
-        row = self.df.iloc[ind]
+        row = self.db.row(ind)
 
         # --- Increment counter
         c['count'] += 1
@@ -404,32 +295,30 @@ class Client():
 
         return arrays
 
-    def test_all(self, lo=0, hi=None):
+    def test(self, n=None, lower=0, upper=None, random=True):
         """
         Method to test self.get() method for all rows
 
-        """
+        :params
 
-        columns = ['sid'] + list(self.df.columns)
-        to_dict = lambda row : {k: row[n] for n, k in enumerate(columns)}
-
-        count = 0
-        hi = None or self.df.shape[0]
-
-        for row in self.df.iloc[lo:hi].itertuples():
-
-            self.get(row=to_dict(row))
-            count += 1
-            printp('Loading all rows | {:06d}'.format(count), count / self.df.shape[0])
-
-    def test_get(self, n=1000):
-        """
-        Method to test self.get() method
+          (int) n     : number of iterations; if None, then all rows
+          (int) lower : lower bounds of row to load
+          (int) upper : upper bounds of row to load
 
         """
-        for i in range(n):
-            printp('Loading | {:04d}'.format(i), (i + 1) / n)
-            self.get()
+        # --- Determine range
+        upper = upper or self.db.header.shape[0]
+        n = n or (upper - lower)
+
+        # --- Determine indices
+        indices = np.arange(lower, upper)
+        if random:
+            indices = indices[np.random.permutation(indices.size)]
+        indices = indices[:n]
+
+        # --- Iterate
+        for sid, fnames, header in self.db.cursor(indices=indices):
+            self.get(row={**fnames, **header})
 
         printd('Completed {} self.get() iterations successfully'.format(n))
 
@@ -457,6 +346,14 @@ class Client():
             ys = {k: np.stack([y[k] for y in ys]) for k in self.specs['ys']}
 
             yield xs, ys
+
+    def create_generators(self, batch_size=None):
+
+        batch_size = batch_size or self.specs['batch']
+        gen_train = self.generator('train', batch_size)
+        gen_valid = self.generator('train', batch_size)
+
+        return gen_train, gen_valid
 
 # ===================================================================================
 # client = Client()
