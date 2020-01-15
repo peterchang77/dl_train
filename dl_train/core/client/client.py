@@ -12,19 +12,23 @@ class Client():
 
         """
         # --- Serialization attributes
-        self.ATTRS = ['_db', 'current', 'rates', 'specs']
+        self.ATTRS = ['_db', 'current', 'rates', 'specs', 'split']
 
         # --- Initialize existing settings from *.yml
         fname = kwargs.pop('yml', './client.yml')
         self.load_yml(fname)
 
-        # --- Initialize rates
-        self.set_sampling_rates()
-        self.set_training_rates()
-
         # --- Initialize db
         self.db = DB(*(*args, *(self._db,)), **kwargs)
         self._db = self.db.get_files()['yml'] or self.db.get_files()['csv']
+
+        # --- Initialize cohorts
+        self.init_cohorts()
+        self.prepare_cohorts()
+
+        # --- Initialize rates
+        self.set_sampling_rates()
+        self.set_training_rates()
 
     def load_yml(self, fname='./client.yml'):
         """
@@ -35,6 +39,7 @@ class Client():
             '_db': None,
             'indices': {'train': {}, 'valid': {}},
             'current': {'train': {}, 'valid': {}},
+            'split': {'fold': -1, 'cohorts': None},
             'specs': {'xs': {}, 'ys': {}, 'infos': {}, 'tiles': [False] * 4, 'batch': 16},
             'rates': {'sampling': {}, 'training': {}}}
 
@@ -89,10 +94,8 @@ class Client():
 
                 # --- Load from row
                 else:
-                    if spec['loads'] is not None:
-                        arrays[k][key] = np.array(row[spec['loads']])
-                    else:
-                        arrays[k][key] = np.ones(spec['shape'], dtype=spec['dtype'])
+                    arrays[k][key] = np.array(row[spec['loads']]) if spec['loads'] is not None else \
+                        np.ones(spec['shape'], dtype=spec['dtype'])
 
         return arrays
 
@@ -101,8 +104,16 @@ class Client():
         
         pass
 
+    def init_cohorts(self):
+
+        # --- Default, all cases without stratification
+        if self.split['cohorts'] is None:
+            self.db.header['all'] = True
+            self.split['cohorts'] = {'all': 'all'}
+            self.rates['sampling'] = {'all': 1.0}
+
     @check_data_is_loaded
-    def prepare_cohorts(self, fold, cohorts):
+    def prepare_cohorts(self, fold=None, cohorts=None):
         """
         Method to separate out data into specific cohorts for stratified sampling.
 
@@ -116,6 +127,9 @@ class Client():
         IMPORTANT: this is a default template; please modify as needed for your data
 
         """
+        cohorts = cohorts or self.split['cohorts']
+        fold = fold or self.split['fold']
+
         for split in ['train', 'valid']:
 
             # --- Determine mask corresponding to current split 
@@ -130,7 +144,7 @@ class Client():
 
             # --- Define cohorts based on cohorts lambda functions
             for key, s in cohorts.items():
-                self.indices[split][key] = np.nonzero(np.array(s) & mask)[0]
+                self.indices[split][key] = np.nonzero(np.array(self.db.header[s]) & mask)[0]
 
             for cohort in self.indices[split]:
 
@@ -295,6 +309,10 @@ class Client():
 
         return arrays
 
+    def preprocess(self, arrays, **kwargs):
+
+        return arrays 
+
     def test(self, n=None, lower=0, upper=None, random=True, cohort=None, split='train', aggregate=False):
         """
         Method to test self.get() method for all rows
@@ -332,10 +350,6 @@ class Client():
         if aggregate:
             stack = lambda x : {k: np.stack(v) for k, v in x.items()}
             return {'xs': stack(arrs['xs']), 'ys': stack(arrs['ys'])}
-
-    def preprocess(self, arrays, **kwargs):
-
-        return arrays 
 
     def generator(self, split, batch_size):
         """
