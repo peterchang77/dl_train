@@ -35,7 +35,7 @@ class Client():
         Method to load metadata from YML
 
         """
-        configs = {
+        DEFAULTS = {
             '_db': None,
             'indices': {'train': {}, 'valid': {}},
             'current': {'train': {}, 'valid': {}},
@@ -43,9 +43,15 @@ class Client():
             'specs': {'xs': {}, 'ys': {}, 'infos': {}, 'tiles': [False] * 4, 'batch': 16},
             'rates': {'sampling': {}, 'training': {}}}
 
+        configs = {}
         if os.path.exists(fname):
             with open(fname, 'r') as y:
-                configs = {**configs, **yaml.load(y, Loader=yaml.FullLoader)}
+                configs = yaml.load(y, Loader=yaml.FullLoader)
+
+        # --- Initialize default values
+        for key, d in DEFAULTS.items():
+            configs[key] = {**DEFAULTS[key], **configs.get(key, {})} if type(d) is dict else \
+                configs[key] or DEFAULTS[key]
 
         # --- Set attributes
         for attr, config in configs.items():
@@ -309,13 +315,15 @@ class Client():
 
         return arrays
 
-    def preprocess(self, arrays, **kwargs):
+    def preprocess(self, arrays, **kwargs): 
 
-        return arrays 
+        printd('WARNING default self.proprocess(...) is empty')
 
-    def test(self, n=None, lower=0, upper=None, random=True, cohort=None, split='train', aggregate=False):
+        return arrays
+
+    def test(self, n=None, split=None, cohort=None, aggregate=False):
         """
-        Method to test self.get() method for all rows
+        Method to test self.get() method
 
         :params
 
@@ -324,21 +332,15 @@ class Client():
           (int) upper : upper bounds of row to load
 
         """
-        # --- Determine indices
-        upper = upper or self.db.header.shape[0]
-        indices = np.arange(lower, upper) if cohort is None else self.indices[split][cohort]
-        if random:
-            indices = indices[np.random.permutation(indices.size)]
-
-        n = n or (upper - lower)
-        indices = indices[:n]
+        if aggregate:
+            keys = lambda x : {k: [] for k in self.specs[x]}
+            arrs = {'xs': keys('xs'), 'ys': keys('ys')} 
 
         # --- Iterate
-        keys = lambda x : {k: [] for k in self.specs[x]}
-        arrs = {'xs': keys('xs'), 'ys': keys('ys')} 
+        for i in range(n):
 
-        for sid, fnames, header in self.db.cursor(indices=indices):
-            arrays = self.get(row={**fnames, **header})
+            printp('Loading iteration: {:06d}'.format(i), (i + 1) / n)
+            arrays = self.get(split=split, cohort=cohort)
 
             if aggregate:
                 for k in arrays:

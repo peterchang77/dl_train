@@ -1,6 +1,14 @@
 import unittest
 import os, shutil
 from dl_train.client import Client
+from dl_utils.general import overload
+
+@overload(Client)
+def preprocess(self, arrays, **kwargs):
+
+    arrays['xs']['dat'] = arrays['xs']['dat'].clip(min=0, max=256) / 64
+
+    return arrays
 
 class TestClient(unittest.TestCase):
     """
@@ -18,7 +26,8 @@ class TestClient(unittest.TestCase):
 
     def test_get(self):
 
-        # --- Create summary
+        # --- Test 100 random loads 
+        self.client.test(100)
 
     @classmethod
     def tearDownClass(self):
@@ -29,3 +38,4 @@ if __name__ == '__main__':
 
     unittest.main()
 
+    pass
