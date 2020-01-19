@@ -1,0 +1,41 @@
+_db: ../../../../dl_utils/data/bet/ymls/db.yml
+rates:
+  sampling:
+    fg: 0.5
+    bg: 0.5 
+  training:
+    train: 0.8
+    valid: 0.2
+specs:
+  batch: 16
+  xs:
+    dat:
+      dtype: float32
+      loads: dat
+      norms:
+        clip: 
+          min: 0
+          max: 256
+        shift: 64
+        scale: 64
+      shape:
+      - 1
+      - 512
+      - 512
+      - 1
+  ys:
+    bet:
+      dtype: uint8
+      loads: bet 
+      norms: null
+      shape:
+      - 1
+      - 512
+      - 512
+      - 1
+split: 
+  fold: -1
+  cohorts:
+    fg: fg
+    bg: bg 
+
