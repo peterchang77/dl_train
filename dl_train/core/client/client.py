@@ -30,6 +30,9 @@ class Client():
         self.set_sampling_rates()
         self.set_training_rates()
 
+        # --- Initialize normalization functions
+        self.init_normalization()
+
     def load_yml(self, fname='./client.yml'):
         """
         Method to load metadata from YML
@@ -109,6 +112,56 @@ class Client():
     def load_data_in_memory(self):
         
         pass
+
+    def init_normalization(self):
+        """
+        Method to initialize normalization functions as defined by self.spec
+
+        arr = (arr.clip(min, max) - shift) / scale
+
+        There three methods for defining parameters in *.yml file:
+
+          (1) shift: 64      ==> use raw value if provided
+          (2) shift: 'mu'    ==> use corresponding column in DataFrame
+          (3) shift: '$mean' ==> use corresponding Numpy function
+
+        """
+        self.norm_lambda = {'xs': {}, 'ys': {}}
+        self.norm_kwargs = {'xs': {}, 'ys': {}}
+
+        DEFAULTS = {
+            'clip': None,
+            'shift': 0,
+            'scale': 1}
+
+        # --- Lambda function for extracting kwargs
+        extract = lambda x, arrays, arr : arrays[x] if x[0] != '$' else getattr(np, x[1:])(arr)
+
+        for a in ['xs', 'ys']:
+            for key, specs in self.specs[a].items():
+                if specs['norms'] is not None:
+
+                    norms = specs['norms']
+
+                    # --- Set up clip
+                    if 'clip' in norms:
+                        c = lambda clip, x : x.clip(**clip)
+                    else:
+                        c = lambda clip, x : x
+
+                    # --- Set up shift and scale
+                    if 'shift' in norms or 'scale' in norms:
+                        s = lambda shift, scale, x : (x - shift) / scale
+                    else:
+                        s = lambda shift, scale, x : x
+
+                    # --- Compose functions
+                    self.norm_lambda[a][key] = lambda x, shift, scale, clip : s(shift, scale, c(clip, x)) 
+
+                    # --- Create kwargs lambdas
+                    kwargs = {**DEFAULTS, **norms}
+                    self.norm_kwargs[a][key] = lambda arrays, arr : \
+                        {k: extract(v, arrays, arr) if type(v) is str else v for k, v in kwargs.items()}
 
     def init_cohorts(self):
 
@@ -306,6 +359,9 @@ class Client():
         # --- Preprocess
         arrays = self.preprocess(arrays, **kwargs)
 
+        # --- Normalize
+        arrays = self.normalize(arrays, **kwargs)
+
         # --- Ensure that spec matches
         for k in ['xs', 'ys']:
             for key in arrays[k]:
@@ -316,8 +372,21 @@ class Client():
         return arrays
 
     def preprocess(self, arrays, **kwargs): 
+        """
+        Method to add custom preprocessing algorithms to data
 
-        printd('WARNING default self.proprocess(...) is empty')
+        """
+        return arrays
+
+    def normalize(self, arrays, **kwargs):
+        """
+        Method to normalize data based on lambda defined set in self.norm_lambda
+
+        """
+        for a in ['xs', 'ys']:
+            for key, func in self.norm_lambda[a].items():
+                kwargs = self.norm_kwargs[a][key](arrays, arrays[a][key])
+                arrays[a][key] = func(arrays[a][key], **kwargs)
 
         return arrays
 
