@@ -12,7 +12,7 @@ class Client():
 
         """
         # --- Serialization attributes
-        self.ATTRS = ['_db', 'current', 'rates', 'specs', 'split']
+        self.ATTRS = ['_db', 'current', 'batch', 'specs']
 
         # --- Initialize existing settings from *.yml
         fname = kwargs.pop('yml', './client.yml')
@@ -22,13 +22,8 @@ class Client():
         self.db = DB(*(*args, *(self._db,)), **kwargs)
         self._db = self.db.get_files()['yml'] or self.db.get_files()['csv']
 
-        # --- Initialize cohorts
-        self.init_cohorts()
-        self.prepare_cohorts()
-
-        # --- Initialize rates
-        self.set_sampling_rates()
-        self.set_training_rates()
+        # --- Initialize batch composition 
+        self.prepare_batch()
 
         # --- Initialize normalization functions
         self.init_normalization()
@@ -42,9 +37,8 @@ class Client():
             '_db': None,
             'indices': {'train': {}, 'valid': {}},
             'current': {'train': {}, 'valid': {}},
-            'split': {'fold': -1, 'cohorts': None},
-            'specs': {'xs': {}, 'ys': {}, 'infos': {}, 'tiles': [False] * 4, 'batch': 16},
-            'rates': {'sampling': {}, 'training': {}}}
+            'batch': {'fold': -1, 'size': None, 'sampling': None, 'training': {'train': 0.8, 'valid': 0.2}},
+            'specs': {'xs': {}, 'ys': {}, 'infos': {}, 'tiles': [False] * 4}}
 
         configs = {}
         if os.path.exists(fname):
@@ -90,28 +84,88 @@ class Client():
 
         return wrapper
 
-    def load(self, row, **kwargs):
-
-        arrays = {'xs': {}, 'ys': {}}
-        for k in arrays:
-            for key, spec in self.specs[k].items():
-
-                # --- Load from file 
-                if spec['loads'] in self.db.fnames.columns:
-                    infos = self.get_infos(row, spec['shape']) 
-                    arrays[k][key] = io.load(row[spec['loads']], infos=infos)[0]
-
-                # --- Load from row
-                else:
-                    arrays[k][key] = np.array(row[spec['loads']]) if spec['loads'] is not None else \
-                        np.ones(spec['shape'], dtype=spec['dtype'])
-
-        return arrays
-
     @check_data_is_loaded
     def load_data_in_memory(self):
         
         pass
+
+    @check_data_is_loaded
+    def prepare_batch(self, fold=None, sampling_rates=None, training_rates={'train': 0.8, 'valid': 0.2}):
+        """
+        Method to prepare composition of data batches
+
+        :params
+
+          (int)  fold           : fold to use as validation 
+          (dict) sampling_rates : rate to load each stratified cohort
+          (dict) training_rates : rate to load from train / valid splits
+
+        """
+        # --- Set rates
+        self.set_training_rates(training_rates)
+        self.set_sampling_rates(sampling_rates)
+
+        # --- Set default fold
+        fold = fold or self.batch['fold']
+
+        for split in ['train', 'valid']:
+
+            # --- Determine mask corresponding to current split 
+            if fold == -1:
+                mask = np.ones(self.db.header.shape[0], dtype='bool')
+            elif split == 'train': 
+                mask = self.db.header['valid'] != fold
+                mask = mask.to_numpy()
+            elif split == 'valid':
+                mask = self.db.header['valid'] == fold
+                mask = mask.to_numpy()
+
+            # --- Find indices for current cohort / split 
+            for key in self.batch['sampling']:
+                self.indices[split][key] = np.nonzero(np.array(self.db.header[key]) & mask)[0]
+
+            for cohort in self.indices[split]:
+
+                # --- Randomize indices for next epoch
+                if cohort not in self.current[split]:
+                    self.current[split][cohort] = {'epoch': -1, 'count': 0}
+                    self.prepare_next_epoch(split=split, cohort=cohort)
+
+                # --- Reinitialize old index
+                else:
+                    self.shuffle_indices(split, cohort)
+    
+    def set_training_rates(self, rates={'train': 0.8, 'valid': 0.2}):
+
+        assert 'train' in rates
+        assert 'valid' in rates
+
+        self.batch['training'] = rates
+
+    def set_sampling_rates(self, rates=None):
+
+        rates = rates or self.batch['sampling']
+
+        # --- Default, all cases without stratification
+        if rates is None:
+            self.db.header['all'] = True
+            rates = {'all': 1.0}
+
+        assert sum(list(rates.values())) == 1
+
+        keys = sorted(rates.keys())
+        vals = [rates[k] for k in keys]
+        vals = [sum(vals[:n]) for n in range(len(vals) + 1)]
+
+        lower = np.array(vals[:-1])
+        upper = np.array(vals[1:])
+
+        self.batch['sampling'] = rates
+
+        self.sampling_rates = {
+            'cohorts': keys,
+            'lower': np.array(lower),
+            'upper': np.array(upper)} 
 
     def init_normalization(self):
         """
@@ -135,7 +189,7 @@ class Client():
             'scale': 1}
 
         # --- Lambda function for extracting kwargs
-        extract = lambda x, arrays, arr : arrays[x] if x[0] != '$' else getattr(np, x[1:])(arr)
+        extract = lambda x, arrays, arr : arrays[x] if x[0] != '@' else getattr(np, x[1:])(arr)
 
         for a in ['xs', 'ys']:
             for key, specs in self.specs[a].items():
@@ -163,59 +217,6 @@ class Client():
                     self.norm_kwargs[a][key] = lambda arrays, arr : \
                         {k: extract(v, arrays, arr) if type(v) is str else v for k, v in kwargs.items()}
 
-    def init_cohorts(self):
-
-        # --- Default, all cases without stratification
-        if self.split['cohorts'] is None:
-            self.db.header['all'] = True
-            self.split['cohorts'] = {'all': 'all'}
-            self.rates['sampling'] = {'all': 1.0}
-
-    @check_data_is_loaded
-    def prepare_cohorts(self, fold=None, cohorts=None):
-        """
-        Method to separate out data into specific cohorts for stratified sampling.
-
-        :params
-
-          (int) fold    : fold to use as validation 
-          (vec) cohorts : boolean vector equal in size to self.df.shape[0]
-
-        Note the sampling rate is defined in self.sampling_rates.
-
-        IMPORTANT: this is a default template; please modify as needed for your data
-
-        """
-        cohorts = cohorts or self.split['cohorts']
-        fold = fold or self.split['fold']
-
-        for split in ['train', 'valid']:
-
-            # --- Determine mask corresponding to current split 
-            if fold == -1:
-                mask = np.ones(self.db.header.shape[0], dtype='bool')
-            elif split == 'train': 
-                mask = self.db.header['valid'] != fold
-                mask = mask.to_numpy()
-            elif split == 'valid':
-                mask = self.db.header['valid'] == fold
-                mask = mask.to_numpy()
-
-            # --- Define cohorts based on cohorts lambda functions
-            for key, s in cohorts.items():
-                self.indices[split][key] = np.nonzero(np.array(self.db.header[s]) & mask)[0]
-
-            for cohort in self.indices[split]:
-
-                # --- Randomize indices for next epoch
-                if cohort not in self.current[split]:
-                    self.current[split][cohort] = {'epoch': -1, 'count': 0}
-                    self.prepare_next_epoch(split=split, cohort=cohort)
-
-                # --- Reinitialize old index
-                else:
-                    self.shuffle_indices(split, cohort)
-    
     @check_data_is_loaded
     def print_cohorts(self):
         """
@@ -243,35 +244,6 @@ class Client():
                 size = self.indices[split][cohort].size
                 printd('{}: {:06d}'.format(cohort, size))
 
-    def set_sampling_rates(self, rates=None):
-
-        rates = rates or self.rates['sampling']
-        if len(rates) == 0:
-            return
-
-        assert sum(list(rates.values())) == 1
-
-        keys = sorted(rates.keys())
-        vals = [rates[k] for k in keys]
-        vals = [sum(vals[:n]) for n in range(len(vals) + 1)]
-
-        lower = np.array(vals[:-1])
-        upper = np.array(vals[1:])
-
-        self.rates['sampling'] = rates
-
-        self.sampling_rates = {
-            'cohorts': keys,
-            'lower': np.array(lower),
-            'upper': np.array(upper)} 
-
-    def set_training_rates(self, rates={'train': 0.8, 'valid': 0.2}):
-
-        assert 'train' in rates
-        assert 'valid' in rates
-
-        self.rates['training'] = rates
-
     def set_specs(self, specs):
 
         self.specs.update(specs)
@@ -288,6 +260,24 @@ class Client():
                 specs_[k][key] = extract(spec)
 
         return specs_
+
+    def load(self, row, **kwargs):
+
+        arrays = {'xs': {}, 'ys': {}}
+        for k in arrays:
+            for key, spec in self.specs[k].items():
+
+                # --- Load from file 
+                if spec['loads'] in self.db.fnames.columns:
+                    infos = self.get_infos(row, spec['shape']) 
+                    arrays[k][key] = io.load(row[spec['loads']], infos=infos)[0]
+
+                # --- Load from row
+                else:
+                    arrays[k][key] = np.array(row[spec['loads']]) if spec['loads'] is not None else \
+                        np.ones(spec['shape'], dtype=spec['dtype'])
+
+        return arrays
 
     def get_infos(self, row, shape):
 
@@ -325,7 +315,7 @@ class Client():
             return {'row': row, 'split': split, 'cohort': cohort}
 
         if split is None:
-            split = 'train' if np.random.rand() < self.rates['training']['train'] else 'valid'
+            split = 'train' if np.random.rand() < self.batch['training']['train'] else 'valid'
 
         if cohort is None:
             if self.sampling_rates is not None:
@@ -447,7 +437,7 @@ class Client():
 
         batch_size = batch_size or self.specs['batch']
         gen_train = self.generator('train', batch_size)
-        gen_valid = self.generator('train', batch_size)
+        gen_valid = self.generator('valid', batch_size)
 
         return gen_train, gen_valid
 
