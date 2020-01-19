@@ -312,6 +312,7 @@ class Client():
     def prepare_next_array(self, split=None, cohort=None, row=None):
 
         if row is not None:
+            row = self.db.row(row)
             return {'row': row, 'split': split, 'cohort': cohort}
 
         if split is None:
@@ -412,11 +413,15 @@ class Client():
             stack = lambda x : {k: np.stack(v) for k, v in x.items()}
             return {'xs': stack(arrs['xs']), 'ys': stack(arrs['ys'])}
 
-    def generator(self, split, batch_size):
+    def generator(self, split, batch_size=None):
         """
         Method to wrap the self.get() method in a Python generator for training input
 
         """
+        batch_size = batch_size of self.batch['size']
+        if batch_size is None:
+            printd('ERROR batch size must be provided if not already set')
+
         while True:
 
             xs = []
