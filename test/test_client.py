@@ -6,7 +6,7 @@ from dl_utils.general import overload
 @overload(Client)
 def preprocess(self, arrays, **kwargs):
 
-    arrays['xs']['dat'] = arrays['xs']['dat'].clip(min=0, max=256) / 64
+    # arrays['xs']['dat'] = arrays['xs']['dat'].clip(min=0, max=256) / 64
 
     return arrays
 
