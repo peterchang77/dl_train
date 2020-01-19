@@ -1,5 +1,7 @@
 _db: ../../../../dl_utils/data/bet/ymls/db.yml
-rates:
+batch:
+  size: 16
+  fold: -1
   sampling:
     fg: 0.5
     bg: 0.5 
@@ -7,7 +9,6 @@ rates:
     train: 0.8
     valid: 0.2
 specs:
-  batch: 16
   xs:
     dat:
       dtype: float32
@@ -33,9 +34,3 @@ specs:
       - 512
       - 512
       - 1
-split: 
-  fold: -1
-  cohorts:
-    fg: fg
-    bg: bg 
-
