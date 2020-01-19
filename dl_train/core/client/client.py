@@ -292,7 +292,7 @@ class Client():
     def get_infos(self, row, shape):
 
         infos_ = self.specs['infos'].copy()
-        infos_['point'] = [row['coord'], 0.5, 0.5]
+        infos_['point'] = [row.get('coord', 0.5), 0.5, 0.5]
         infos_['shape'] = shape[:3]
 
         return infos_
