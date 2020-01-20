@@ -189,7 +189,7 @@ class Client():
             'scale': 1}
 
         # --- Lambda function for extracting kwargs
-        extract = lambda x, arrays, arr : arrays[x] if x[0] != '@' else getattr(np, x[1:])(arr)
+        extract = lambda x, row, arr : row[x] if x[0] != '@' else getattr(np, x[1:])(arr)
 
         for a in ['xs', 'ys']:
             for key, specs in self.specs[a].items():
@@ -214,8 +214,8 @@ class Client():
 
                     # --- Create kwargs lambdas
                     kwargs = {**DEFAULTS, **norms}
-                    self.norm_kwargs[a][key] = lambda arrays, arr : \
-                        {k: extract(v, arrays, arr) if type(v) is str else v for k, v in kwargs.items()}
+                    self.norm_kwargs[a][key] = lambda row, arr : \
+                        {k: extract(v, row, arr) if type(v) is str else v for k, v in kwargs.items()}
 
     @check_data_is_loaded
     def print_cohorts(self):
@@ -369,14 +369,14 @@ class Client():
         """
         return arrays
 
-    def normalize(self, arrays, **kwargs):
+    def normalize(self, arrays, row, **kwargs):
         """
         Method to normalize data based on lambda defined set in self.norm_lambda
 
         """
         for a in ['xs', 'ys']:
             for key, func in self.norm_lambda[a].items():
-                kwargs = self.norm_kwargs[a][key](arrays, arrays[a][key])
+                kwargs = self.norm_kwargs[a][key](row, arrays[a][key])
                 arrays[a][key] = func(arrays[a][key], **kwargs)
 
         return arrays
@@ -407,7 +407,7 @@ class Client():
                     for key in arrs[k]:
                         arrs[k][key].append(arrays[k][key][int(arrays[k][key].shape[0] / 2)])
 
-        printd('Completed {} self.get() iterations successfully'.format(n))
+        printd('Completed {} self.get() iterations successfully'.format(n), ljust=140)
 
         if aggregate:
             stack = lambda x : {k: np.stack(v) for k, v in x.items()}
@@ -418,7 +418,7 @@ class Client():
         Method to wrap the self.get() method in a Python generator for training input
 
         """
-        batch_size = batch_size of self.batch['size']
+        batch_size = batch_size or self.batch['size']
         if batch_size is None:
             printd('ERROR batch size must be provided if not already set')
 
