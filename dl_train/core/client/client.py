@@ -6,7 +6,7 @@ from dl_utils.general import *
 
 class Client():
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, client='./client.yml', configs={}, *args, **kwargs):
         """
         Method to initialize client
 
@@ -15,8 +15,7 @@ class Client():
         self.ATTRS = ['_db', 'current', 'batch', 'specs']
 
         # --- Initialize existing settings from *.yml
-        fname = kwargs.pop('yml', './client.yml')
-        self.load_yml(fname)
+        self.load_yml(client, configs)
 
         # --- Initialize db
         self.db = DB(*(*args, *(self._db,)), **kwargs)
@@ -28,7 +27,7 @@ class Client():
         # --- Initialize normalization functions
         self.init_normalization()
 
-    def load_yml(self, fname='./client.yml'):
+    def load_yml(self, client, configs):
         """
         Method to load metadata from YML
 
@@ -40,10 +39,10 @@ class Client():
             'batch': {'fold': -1, 'size': None, 'sampling': None, 'training': {'train': 0.8, 'valid': 0.2}},
             'specs': {'xs': {}, 'ys': {}, 'infos': {}, 'tiles': [False] * 4}}
 
-        configs = {}
-        if os.path.exists(fname):
-            with open(fname, 'r') as y:
-                configs = yaml.load(y, Loader=yaml.FullLoader)
+        configs = configs or {}
+        if os.path.exists(client):
+            with open(client, 'r') as y:
+                configs = {**yaml.load(y, Loader=yaml.FullLoader), **configs}
 
         # --- Initialize default values
         for key, d in DEFAULTS.items():
