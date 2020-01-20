@@ -5,9 +5,6 @@ batch:
   sampling:
     fg: 0.5
     bg: 0.5 
-  training:
-    train: 0.8
-    valid: 0.2
 specs:
   xs:
     dat:
