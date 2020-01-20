@@ -7,4 +7,7 @@ def prepare(name, configs, path='/data/raw', custom_client=None):
     Method to create Python generators for train / valid data
 
     """
-    pass
+    client = '{}/{}/ymls/client.yml'.format(path, name)
+    client = Client(client=client, configs=configs)
+
+    return client.create_generators()
