@@ -6,7 +6,7 @@ from dl_utils.general import *
 
 class Client():
 
-    def __init__(self, client='./client.yml', configs={}, *args, **kwargs):
+    def __init__(self, client='./client.yml', configs=None, *args, **kwargs):
         """
         Method to initialize client
 
@@ -439,7 +439,6 @@ class Client():
 
     def create_generators(self, batch_size=None):
 
-        batch_size = batch_size or self.specs['batch']
         gen_train = self.generator('train', batch_size)
         gen_valid = self.generator('valid', batch_size)
 
