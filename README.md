@@ -19,7 +19,6 @@ Any `*.ipynb` tutorial can be run directly from GitHub in a Google Colab hosted 
 
 Here is an overview of the currently available notebooks with direct Google Colab links:
 
-* Introduction to Tensorflow / Keras 2.0 API [link](https://bit.ly/37U4noo) 
-* Using HDF5 File Format [link](https://bit.ly/33yY1rd)
-* How to Create a Data Client [link](https://bit.ly/2Y28ydn) 
-* Overview of U-Net [link](https://bit.ly/35PHxwk)
+* Introduction to Tensorflow / Keras 2.0 API [link](https://bit.ly/36gRxyG) 
+* How to Create a Data Client [link](https://bit.ly/2G9ufQr) 
+* Overview of U-Net [link](https://bit.ly/2RwJ2de)
