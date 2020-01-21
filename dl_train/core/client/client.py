@@ -182,11 +182,6 @@ class Client():
         self.norm_lambda = {'xs': {}, 'ys': {}}
         self.norm_kwargs = {'xs': {}, 'ys': {}}
 
-        DEFAULTS = {
-            'clip': None,
-            'shift': 0,
-            'scale': 1}
-
         # --- Lambda function for extracting kwargs
         extract = lambda x, row, arr : row[x] if x[0] != '@' else getattr(np, x[1:])(arr)
 
@@ -196,25 +191,21 @@ class Client():
 
                     norms = specs['norms']
 
-                    # --- Set up clip
-                    if 'clip' in norms:
-                        c = lambda clip, x : x.clip(**clip)
+                    # --- Set up appropriate lambda function
+                    if 'clip' in norms and ('shift' in norms or 'scale' in norms):
+                        l = lambda x, clip, shift=0, scale=1 : (x.clip(**clip) - shift) / scale
+
+                    elif 'clip' in norms:
+                        l = lambda x, clip : x.clip(**clip)
+
                     else:
-                        c = lambda clip, x : x
+                        l = lambda x, shift=0, scale=1 : (x - shift) / scale
 
-                    # --- Set up shift and scale
-                    if 'shift' in norms or 'scale' in norms:
-                        s = lambda shift, scale, x : (x - shift) / scale
-                    else:
-                        s = lambda shift, scale, x : x
+                    self.norm_lambda[a][key] = l
 
-                    # --- Compose functions
-                    self.norm_lambda[a][key] = lambda x, shift, scale, clip : s(shift, scale, c(clip, x)) 
-
-                    # --- Create kwargs lambdas
-                    kwargs = {**DEFAULTS, **norms}
-                    self.norm_kwargs[a][key] = lambda row, arr : \
-                        {k: extract(v, row, arr) if type(v) is str else v for k, v in kwargs.items()}
+                    # --- Set up appropriate kwargs function 
+                    self.norm_kwargs[a][key] = lambda row, arr, norms : \
+                        {k: extract(v, row, arr) if type(v) is str else v for k, v in norms.items()}
 
     @check_data_is_loaded
     def print_cohorts(self):
@@ -259,6 +250,18 @@ class Client():
                 specs_[k][key] = extract(spec)
 
         return specs_
+
+    def get_inputs(self, Input):
+        """
+        Method to create dictionary of Keras-type Inputs(...) based on self.specs
+
+        """
+        specs = self.get_specs()
+
+        return {k: Input(
+            shape=specs['xs'][k]['shape'],
+            dtype=specs['xs'][k]['dtype'],
+            name=k) for k in specs['xs']}
 
     def load(self, row, **kwargs):
 
@@ -375,7 +378,7 @@ class Client():
         """
         for a in ['xs', 'ys']:
             for key, func in self.norm_lambda[a].items():
-                kwargs = self.norm_kwargs[a][key](row, arrays[a][key])
+                kwargs = self.norm_kwargs[a][key](row, arrays[a][key], self.specs[a][key]['norms'])
                 arrays[a][key] = func(arrays[a][key], **kwargs)
 
         return arrays

@@ -10,4 +10,6 @@ def prepare(name, configs, path='/data/raw', custom_client=None):
     client = '{}/{}/ymls/client.yml'.format(path, name)
     client = Client(client=client, configs=configs)
 
-    return client.create_generators()
+    gen_train, gen_valid = client.create_generators()
+
+    return gen_train, gen_valid, client
