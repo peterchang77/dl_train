@@ -65,6 +65,8 @@ def train(model, client, steps, save_freq=1000, tf_board=True, **kwargs):
     # --- Loop
     n = int(round(steps / (kwargs['epochs'] * kwargs['steps_per_epoch'])))
 
+    client.to_yml()
+
     for step in range(offset, offset + n):
 
         model.fit_generator(**kwargs)
