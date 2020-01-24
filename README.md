@@ -1,6 +1,6 @@
 # Overview
 
-This Python module contains tools and templated code to facilitate the training of deep learning algorithms for medical imaging tasks. Links to tutorials are available at the end of this README.md. 
+This Python module contains tools and templated code to facilitate the training and validation of deep learning algorithms for medical imaging applications. Links to tutorials are available at the end of this README.md. 
 
 1. [Configuration](#configuration) 
 2. [Tutorials](#tutorials) 
