@@ -22,4 +22,4 @@ Here is an overview of the currently available notebooks with direct Google Cola
 * Introduction to Tensorflow / Keras 2.0 API [Google Colab](https://bit.ly/36gRxyG) 
 * How to Create a Data Client [Google Colab](https://bit.ly/2G9ufQr) 
 * Overview of U-Net [Google Colab](https://bit.ly/2RwJ2de)
-* Overview of U-Net and Custom Loss / Metrics [Google Colab] (https://bit.ly/2GG9NHc)
+* Overview of U-Net and Custom Loss / Metrics [Google Colab](https://bit.ly/2GG9NHc)
