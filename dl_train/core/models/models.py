@@ -113,13 +113,14 @@ def create_block_components(names=None, dims=2):
 
     return [lvars.get(n) for n in names] 
 
-def create_blocks(names=None, dims=2):
+def create_blocks(names=None, dims=2, strides=None):
 
     # --- Create components
     conv_z1, conv_z2, conv_z3, tran_z1, conv_fc, norm, relu = create_block_components(names=None, dims=dims)
 
     # --- Define stride-1, stride-2 blocks
-    strides = (1, 2, 2) if dims == 2 else (2, 2, 2)
+    if strides is None:
+        strides = (1, 2, 2) if dims == 2 else (2, 2, 2)
 
     conv1 = lambda filters, x : relu(norm(conv_z1(x, filters, strides=1)))
     convZ = lambda filters, x : relu(norm(conv_z2(x, filters, strides=1)))

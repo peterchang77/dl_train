@@ -15,6 +15,36 @@ def sce(weights, scale=1.0):
 
     return sce 
 
+def mse(weights, scale=1.0):
+
+    loss = losses.MeanSquaredError()
+
+    def mse(y_true, y_pred):
+
+        return loss(y_true, y_pred, weights) * scale
+
+    return mse
+
+def mae(weights, scale=1.0):
+
+    loss = losses.MeanAbsoluteError()
+
+    def mae(y_true, y_pred):
+
+        return loss(y_true, y_pred, weights) * scale
+
+    return mae
+
+def sl1(weights, scale=1.0, delta=1.0):
+
+    loss = losses.Huber(delta=delta)
+
+    def sl1(y_true, y_pred):
+
+        return loss(y_true, y_pred, weights) * scale
+
+    return sl1
+
 def dsc(weights, scale=1.0, epsilon=1):
 
     def dice(y_true, y_pred):

@@ -150,6 +150,9 @@ class Client():
             self.db.header['all'] = True
             rates = {'all': 1.0}
 
+        if 'all' in rates and 'all' not in self.db.header:
+            self.db.header['all'] = True
+
         assert sum(list(rates.values())) == 1
 
         keys = sorted(rates.keys())

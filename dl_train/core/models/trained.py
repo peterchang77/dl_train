@@ -1,4 +1,4 @@
-import numpy as np, os
+import numpy as np, os, glob
 import types, importlib
 from tensorflow.keras import models
 from dl_utils.general import *
@@ -20,7 +20,17 @@ class Trained():
 
     def load_h5(self, path, compile=False):
 
-        h5 = '{}/model.hdf5'.format(path)
+        if os.path.isdir(path):
+            h5 = '{}/model.hdf5'.format(path)
+
+            # --- Find latest model
+            if not os.path.exists(h5):
+                h5s = glob.glob('{}/*.hdf5'.format(path))
+                if len(h5s) > 0:
+                    h5 = sorted(h5s)[-1]
+
+        else:
+            h5 = path
 
         if os.path.exists(h5):
             self.model = models.load_model(h5, compile=compile)
