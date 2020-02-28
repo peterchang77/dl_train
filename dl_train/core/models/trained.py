@@ -1,5 +1,4 @@
-import numpy as np, os
-import types, importlib
+import numpy as np, os, glob
 from tensorflow.keras import models
 from dl_utils.general import *
 
@@ -8,42 +7,24 @@ class Trained():
     def __init__(self, path):
 
         self.model = None
+        self.load_model(path)
 
-        self.jspecs = {}
-        self.kwargs = {
-            'predict': {'softmax': False},
-            'pre': {},
-            'post': {}}
+    def load_model(self, path, compile=False):
 
-        self.load_py(path)
-        self.load_h5(path)
+        if os.path.isdir(path):
+            h5 = '{}/model.hdf5'.format(path)
 
-    def load_h5(self, path, compile=False):
+            # --- Find latest model
+            if not os.path.exists(h5):
+                h5s = glob.glob('{}/*.hdf5'.format(path))
+                if len(h5s) > 0:
+                    h5 = sorted(h5s)[-1]
 
-        h5 = '{}/model.hdf5'.format(path)
+        else:
+            h5 = path
 
         if os.path.exists(h5):
             self.model = models.load_model(h5, compile=compile)
-
-    def load_py(self, path):
-
-        py = '{}/data.py'.format(path)
-
-        if os.path.exists(py):
-
-            loader = importlib.machinery.SourceFileLoader('data', py)
-            mod = types.ModuleType(loader.name)
-            loader.exec_module(mod)
-
-            # --- Grab custom code
-            for func in ['preprocess', 'postprocess']:
-                if hasattr(mod, func):
-                    setattr(self, func, getattr(mod, func))
-
-            # --- Grab custom attr
-            for attr in ['kwargs', 'jspecs']:
-                if hasattr(mod, attr):
-                    getattr(self, attr).update(getattr(mod, attr))
 
     def predict(self, xs, softmax=False, reduce_dims=True, **kwargs): 
 
@@ -85,16 +66,6 @@ class Trained():
         if type(xs) is not dict:
             xs = {'dat': xs}
 
-        xs = self.preprocess(xs, **{**self.kwargs['pre'], **kwargs})
-        ys = self.predict(xs, **{**self.kwargs['predict'], **kwargs})
-        ys = self.postprocess(ys, **{**self.kwargs['post'], **kwargs})
-
-        return ys
-
-    def preprocess(self, xs, **kwargs):
-
-        return xs
-
-    def postprocess(self, ys, **kwargs):
+        ys = self.predict(xs, **kwargs)
 
         return ys

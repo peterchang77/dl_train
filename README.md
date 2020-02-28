@@ -1,6 +1,6 @@
 # Overview
 
-This Python module contains tools and templated code to facilitate the training of deep learning algorithms for medical imaging tasks. Links to tutorials are available at the end of this README.md. 
+This Python module contains tools and templated code to facilitate the training and validation of deep learning algorithms for medical imaging applications. Links to tutorials are available at the end of this README.md. 
 
 1. [Configuration](#configuration) 
 2. [Tutorials](#tutorials) 
@@ -19,6 +19,8 @@ Any `*.ipynb` tutorial can be run directly from GitHub in a Google Colab hosted 
 
 Here is an overview of the currently available notebooks with direct Google Colab links:
 
-* Introduction to Tensorflow / Keras 2.0 API [link](https://bit.ly/36gRxyG) 
-* How to Create a Data Client [link](https://bit.ly/2G9ufQr) 
-* Overview of U-Net [link](https://bit.ly/2RwJ2de)
+* Introduction to Tensorflow / Keras 2.0 API [Google Colab](https://bit.ly/36gRxyG) 
+* How to Create a Data Client [Google Colab](https://bit.ly/2G9ufQr) 
+* Overview of U-Net [Google Colab](https://bit.ly/2RwJ2de)
+* Overview of U-Net and Custom Loss / Metrics [Google Colab](https://bit.ly/2GG9NHc)
+* Overview of Regression Network [Google Colab](https://bit.ly/2S3Br7t)

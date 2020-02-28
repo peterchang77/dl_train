@@ -15,15 +15,46 @@ def sce(weights, scale=1.0):
 
     return sce 
 
-def dsc(weights, scale=1.0, epsilon=1):
+def mse(weights, scale=1.0):
+
+    loss = losses.MeanSquaredError()
+
+    def mse(y_true, y_pred):
+
+        return loss(y_true, y_pred, weights) * scale
+
+    return mse
+
+def mae(weights, scale=1.0):
+
+    loss = losses.MeanAbsoluteError()
+
+    def mae(y_true, y_pred):
+
+        return loss(y_true, y_pred, weights) * scale
+
+    return mae
+
+def sl1(weights, scale=1.0, delta=1.0):
+
+    loss = losses.Huber(delta=delta)
+
+    def sl1(y_true, y_pred):
+
+        return loss(y_true, y_pred, weights) * scale
+
+    return sl1
+
+def dsc(weights=None, scale=1.0, epsilon=1):
 
     def dice(y_true, y_pred):
 
         true = y_true[..., 0]  == 1
         pred = y_pred[..., 1] > y_pred[..., 0] 
 
-        true = true & (weights[..., 0] != 0) 
-        pred = pred & (weights[..., 0] != 0)
+        if weights is not None:
+            true = true & (weights[..., 0] != 0) 
+            pred = pred & (weights[..., 0] != 0)
 
         A = tf.math.count_nonzero(true & pred) * 2
         B = tf.math.count_nonzero(true) + tf.math.count_nonzero(pred) + epsilon
