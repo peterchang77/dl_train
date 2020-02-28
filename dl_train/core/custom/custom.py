@@ -45,15 +45,16 @@ def sl1(weights, scale=1.0, delta=1.0):
 
     return sl1
 
-def dsc(weights, scale=1.0, epsilon=1):
+def dsc(weights=None, scale=1.0, epsilon=1):
 
     def dice(y_true, y_pred):
 
         true = y_true[..., 0]  == 1
         pred = y_pred[..., 1] > y_pred[..., 0] 
 
-        true = true & (weights[..., 0] != 0) 
-        pred = pred & (weights[..., 0] != 0)
+        if weights is not None:
+            true = true & (weights[..., 0] != 0) 
+            pred = pred & (weights[..., 0] != 0)
 
         A = tf.math.count_nonzero(true & pred) * 2
         B = tf.math.count_nonzero(true) + tf.math.count_nonzero(pred) + epsilon

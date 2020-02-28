@@ -195,7 +195,10 @@ class Client():
                     norms = specs['norms']
 
                     # --- Set up appropriate lambda function
-                    if 'clip' in norms and ('shift' in norms or 'scale' in norms):
+                    if 'mapping' in norms:
+                        l = self.map_array
+
+                    elif 'clip' in norms and ('shift' in norms or 'scale' in norms):
                         l = lambda x, clip, shift=0, scale=1 : (x.clip(**clip) - shift) / scale
 
                     elif 'clip' in norms:
@@ -209,6 +212,20 @@ class Client():
                     # --- Set up appropriate kwargs function 
                     self.norm_kwargs[a][key] = lambda row, arr, norms : \
                         {k: extract(v, row, arr) if type(v) is str else v for k, v in norms.items()}
+
+    def map_array(self, arr, mapping):
+        """
+        Method to map values in array
+
+        NOTE: only values in mapping dict will be propogated
+
+        """
+        arr_ = np.zeros(arr.shape, dtype=arr.dtype)
+
+        for k, v in mapping.items():
+            arr_[arr == k] = v
+
+        return arr_
 
     @check_data_is_loaded
     def print_cohorts(self):
@@ -339,7 +356,7 @@ class Client():
             c = self.current[split][cohort]
 
         ind = self.indices[split][cohort][c['count']]
-        row = self.db.row(ind)
+        row = self.db.row(index=ind)
 
         # --- Increment counter
         c['count'] += 1
