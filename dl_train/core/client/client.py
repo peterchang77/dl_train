@@ -47,11 +47,14 @@ class Client():
         # --- Initialize default values
         for key, d in DEFAULTS.items():
             configs[key] = {**DEFAULTS[key], **configs.get(key, {})} if type(d) is dict else \
-                configs[key] or DEFAULTS[key]
+                configs.get(key, None) or DEFAULTS[key]
 
         # --- Set attributes
         for attr, config in configs.items():
             setattr(self, attr, config)
+
+        # --- Set (init) specs
+        self.set_specs()
 
     def to_dict(self):
         """
@@ -188,24 +191,34 @@ class Client():
         # --- Lambda function for extracting kwargs
         extract = lambda x, row, arr : row[x] if x[0] != '@' else getattr(np, x[1:])(arr)
 
+        # --- Set up random number generator
+        rands = lambda lower, upper: np.random.rand() * (upper - lower) + lower 
+
         for a in ['xs', 'ys']:
             for key, specs in self.specs[a].items():
                 if specs['norms'] is not None:
 
                     norms = specs['norms']
 
+                    # --- Initialize random transforms
+                    r = norms.pop('rands', {})
+                    norms['rand_scale'] = {**{'lower': 1.0, 'upper': 1.0}, **r.get('scale', {})}
+                    norms['rand_shift'] = {**{'lower': 1.0, 'upper': 1.0}, **r.get('shift', {})}
+
                     # --- Set up appropriate lambda function
                     if 'mapping' in norms:
                         l = self.map_array
 
                     elif 'clip' in norms and ('shift' in norms or 'scale' in norms):
-                        l = lambda x, clip, shift=0, scale=1 : (x.clip(**clip) - shift) / scale
+                        l = lambda x, clip, rand_shift, rand_scale, shift=0, scale=1 : \
+                            (x.clip(**clip) - (shift * rands(**rand_shift))) / (scale * rands(**rand_scale))
 
                     elif 'clip' in norms:
                         l = lambda x, clip : x.clip(**clip)
 
                     else:
-                        l = lambda x, shift=0, scale=1 : (x - shift) / scale
+                        l = lambda x, rand_shift, rand_scale, shift=0, scale=1 : \
+                            (x - (shift * rands(**rand_shift))) / (scale * rands(**rand_scale))
 
                     self.norm_lambda[a][key] = l
 
@@ -254,14 +267,33 @@ class Client():
                 size = self.indices[split][cohort].size
                 printd('{}: {:06d}'.format(cohort, size))
 
-    def set_specs(self, specs):
+    def set_specs(self, specs=None):
 
-        self.specs.update(specs)
+        self.specs.update(specs or {})
+
+        # --- Initialize xs, ys
+        for arr in ['xs', 'ys']:
+            for k in self.specs[arr]:
+
+                DEFAULTS = {'norms': None, 'xform': None}
+                self.specs[arr][k] = {**DEFAULTS, **self.specs[arr][k]}
+
+                for field in ['dtype', 'loads', 'norms', 'shape', 'xform']:
+                    assert field in self.specs[arr][k]
+
+                # --- Initialize shape
+                if type(self.specs[arr][k]['shape']) is list:
+                    self.specs[arr][k]['shape'] = {
+                        'saved': self.specs[arr][k]['shape'],
+                        'input': self.specs[arr][k]['shape']}
+
+                for field in ['saved', 'input']:
+                    assert field in self.specs[arr][k]['shape']
 
     def get_specs(self):
 
         extract = lambda x : {
-            'shape': [None if t else s for s, t in zip(x['shape'], self.specs['tiles'])],
+            'shape': [None if t else s for s, t in zip(x['shape']['input'], self.specs['tiles'])],
             'dtype': x['dtype']}
 
         specs_ = {'xs': {}, 'ys': {}} 
@@ -291,13 +323,13 @@ class Client():
 
                 # --- Load from file 
                 if spec['loads'] in self.db.fnames.columns:
-                    infos = self.get_infos(row, spec['shape']) 
+                    infos = self.get_infos(row, spec['shape']['saved']) 
                     arrays[k][key] = io.load(row[spec['loads']], infos=infos)[0]
 
                 # --- Load from row
                 else:
                     arrays[k][key] = np.array(row[spec['loads']]) if spec['loads'] is not None else \
-                        np.ones(spec['shape'], dtype=spec['dtype'])
+                        np.ones(spec['shape']['saved'], dtype=spec['dtype'])
 
         return arrays
 
@@ -378,7 +410,7 @@ class Client():
         # --- Ensure that spec matches
         for k in ['xs', 'ys']:
             for key in arrays[k]:
-                shape = self.specs[k][key]['shape']
+                shape = self.specs[k][key]['shape']['input']
                 dtype = self.specs[k][key]['dtype']
                 arrays[k][key] = arrays[k][key].reshape(shape).astype(dtype)
 
