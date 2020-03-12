@@ -6,7 +6,7 @@ from dl_utils.general import *
 
 class Client():
 
-    def __init__(self, client='./client.yml', configs=None, *args, **kwargs):
+    def __init__(self, client='./client.yml', configs=None, load=None, *args, **kwargs):
         """
         Method to initialize client
 
@@ -27,6 +27,11 @@ class Client():
         # --- Initialize normalization functions
         self.init_normalization()
 
+        # --- Initialize custom functions
+        self.load_func = load or io.load
+        self.daug_func = kwargs.get('augment', None)
+        self.prep_func = kwargs.get('preprocess', None)
+
     def load_yml(self, client, configs):
         """
         Method to load metadata from YML
@@ -37,7 +42,7 @@ class Client():
             'indices': {'train': {}, 'valid': {}},
             'current': {'train': {}, 'valid': {}},
             'batch': {'fold': -1, 'size': None, 'sampling': None, 'training': {'train': 0.8, 'valid': 0.2}},
-            'specs': {'xs': {}, 'ys': {}, 'infos': {}, 'tiles': [False] * 4}}
+            'specs': {'xs': {}, 'ys': {}, 'load_kwargs': {}, 'tiles': [False] * 4}}
 
         configs = configs or {}
         if os.path.exists(client):
@@ -63,14 +68,14 @@ class Client():
         """
         return {attr: getattr(self, attr) for attr in self.ATTRS}
 
-    def to_yml(self, fname='./client.yml'):
+    def to_yml(self, fname='./client.yml', **kwargs):
         """
         Method to serialize metadata to YML 
 
         """
         os.makedirs(os.path.dirname(fname), exist_ok=True)
         with open(fname, 'w') as y:
-            yaml.dump(self.to_dict(), y)
+            yaml.dump(self.to_dict(), y, **kwargs)
 
     def check_data_is_loaded(func):
         """
@@ -284,8 +289,8 @@ class Client():
                 # --- Initialize shape
                 if type(self.specs[arr][k]['shape']) is list:
                     self.specs[arr][k]['shape'] = {
-                        'saved': self.specs[arr][k]['shape'],
-                        'input': self.specs[arr][k]['shape']}
+                        'saved': self.specs[arr][k]['shape'].copy(),
+                        'input': self.specs[arr][k]['shape'].copy()}
 
                 for field in ['saved', 'input']:
                     assert field in self.specs[arr][k]['shape']
@@ -323,8 +328,10 @@ class Client():
 
                 # --- Load from file 
                 if spec['loads'] in self.db.fnames.columns:
-                    infos = self.get_infos(row, spec['shape']['saved']) 
-                    arrays[k][key] = io.load(row[spec['loads']], infos=infos)[0]
+                    load_kwargs = self.get_load_kwargs(row, spec['shape']['saved']) 
+                    arrays[k][key] = self.load_func(row[spec['loads']], **load_kwargs)
+                    if type(arrays[k][key]) is tuple:
+                        arrays[k][key] = arrays[k][key][0]
 
                 # --- Load from row
                 else:
@@ -333,13 +340,17 @@ class Client():
 
         return arrays
 
-    def get_infos(self, row, shape):
+    def get_load_kwargs(self, row, shape):
 
-        infos_ = self.specs['infos'].copy()
-        infos_['point'] = [row.get('coord', 0.5), 0.5, 0.5]
-        infos_['shape'] = shape[:3]
+        load_kwargs = self.specs['load_kwargs'].copy()
 
-        return infos_
+        if 'infos' not in load_kwargs:
+            load_kwargs['infos'] = {}
+
+        load_kwargs['infos']['point'] = [row.get('coord', 0.5), 0.5, 0.5]
+        load_kwargs['infos']['shape'] = shape[:3]
+
+        return load_kwargs
 
     def prepare_next_epoch(self, split, cohort):
 
@@ -401,10 +412,10 @@ class Client():
         kwargs = self.prepare_next_array(split=split, cohort=cohort, row=row)
         arrays = self.load(**kwargs)
 
-        # --- Preprocess
+        # --- Process 
+        arrays = self.augment(arrays, **kwargs)
         arrays = self.preprocess(arrays, **kwargs)
-
-        # --- Normalize
+        arrays = self.arrs_to_numpy(arrays)
         arrays = self.normalize(arrays, **kwargs)
 
         # --- Ensure that spec matches
@@ -416,11 +427,37 @@ class Client():
 
         return arrays
 
+    def arrs_to_numpy(self, arrays):
+        """
+        Method to convert arrays to Numpy (if alternate load function is provided)
+
+        """
+        for k in ['xs', 'ys']:
+            for key in arrays[k]:
+                if type(arrays[k][key]) is not np.ndarray:
+                    if hasattr(arrays[k][key], 'to_numpy'):
+                        arrays[k][key] = arrays[k][key].to_numpy()
+
+        return arrays
+
+    def augment(self, arrays, **kwargs):
+        """
+        Method to add custom data augmentation algorithms to data
+
+        """
+        if self.daug_func is not None:
+            arrays = self.daug_func(arrays, self.specs, **kwargs)
+
+        return arrays
+
     def preprocess(self, arrays, **kwargs): 
         """
         Method to add custom preprocessing algorithms to data
 
         """
+        if self.prep_func is not None:
+            arrays = self.prep_func(arrays, self.specs, **kwargs)
+
         return arrays
 
     def normalize(self, arrays, row, **kwargs):
