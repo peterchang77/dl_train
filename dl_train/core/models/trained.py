@@ -4,13 +4,28 @@ from dl_utils.general import *
 
 class Trained():
 
-    def __init__(self, path):
+    def __init__(self, path=None):
 
         self.model = None
         self.load_model(path)
 
     def load_model(self, path, compile=False):
+        """
+        Method to load model from a number of inferred paths:
 
+          (1) path variable (manually passed kwarg)
+          (2) DL_MODEL_PATH (os.environ variable)
+
+        If path is a dir:
+
+          (1) Look for file named "model.hdf5" 
+          (2) Look for latest model (e.g. model largest suffix)
+
+        """
+        # --- Infer path
+        path = path or os.environ.get('DL_MODEL_PATH', '')
+
+        # --- Infer model
         if os.path.isdir(path):
             h5 = '{}/model.hdf5'.format(path)
 
