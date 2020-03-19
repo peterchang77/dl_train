@@ -39,6 +39,7 @@ class Client():
         """
         DEFAULTS = {
             '_db': None,
+            'data_in_memory': {},
             'indices': {'train': {}, 'valid': {}},
             'current': {'train': {}, 'valid': {}},
             'batch': {'fold': -1, 'size': None, 'sampling': None, 'training': {'train': 0.8, 'valid': 0.2}},
@@ -92,10 +93,41 @@ class Client():
         return wrapper
 
     @check_data_is_loaded
-    def load_data_in_memory(self):
-        
-        pass
+    def load_data_in_memory(self, MAX_SIZE=32):
+        """
+        Method to load all required fnames into memory
 
+        """
+        # --- Find exams used in current training 
+        mask = np.zeros(self.db.fnames.shape[0], dtype='bool') 
+        for key, rate in self.batch['sampling'].items():
+            if rate > 0:
+                mask = mask | self.db.header[key].to_numpy()
+
+        # --- Find keys to load
+        to_load = []
+        to_load += [(k, v['shape']['saved']) for k, v in self.specs['xs'].items() if v['loads'] in self.db.fnames]
+        to_load += [(k, v['shape']['saved']) for k, v in self.specs['ys'].items() if v['loads'] in self.db.fnames]
+
+        # --- TODO: Check if dataset exceeds MAX_SIZE
+
+        # --- Load exams into self.data_in_memory
+        for sid, fnames, header in self.db.cursor(mask=mask):
+            for key, shape in to_load:
+                if fnames[key] not in self.data_in_memory:
+                    load_kwargs = self.get_load_kwargs(header, shape) 
+                    self.data_in_memory[fnames[key]] = self.load_func(fnames[key], **load_kwargs)
+
+        # --- Change default load function
+        self.load_func = self.find_data_in_memory
+
+    def find_data_in_memory(self, fname, **kwargs):
+        """
+        Method to retrieve loaded data 
+
+        """
+        return self.data_in_memory.get(fname, None)
+        
     @check_data_is_loaded
     def prepare_batch(self, fold=None, sampling_rates=None, training_rates={'train': 0.8, 'valid': 0.2}):
         """
@@ -280,11 +312,15 @@ class Client():
         for arr in ['xs', 'ys']:
             for k in self.specs[arr]:
 
-                DEFAULTS = {'norms': None, 'xform': None}
-                self.specs[arr][k] = {**DEFAULTS, **self.specs[arr][k]}
+                DEFAULTS = {
+                    'dtype': None,
+                    'input': True,
+                    'loads': None,
+                    'norms': None, 
+                    'shape': None,
+                    'xform': None}
 
-                for field in ['dtype', 'loads', 'norms', 'shape', 'xform']:
-                    assert field in self.specs[arr][k]
+                self.specs[arr][k] = {**DEFAULTS, **self.specs[arr][k]}
 
                 # --- Initialize shape
                 if type(self.specs[arr][k]['shape']) is list:
@@ -304,7 +340,8 @@ class Client():
         specs_ = {'xs': {}, 'ys': {}} 
         for k in specs_:
             for key, spec in self.specs[k].items():
-                specs_[k][key] = extract(spec)
+                if spec['input']:
+                    specs_[k][key] = extract(spec)
 
         return specs_
 
