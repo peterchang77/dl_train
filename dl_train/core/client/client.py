@@ -567,11 +567,11 @@ class Client():
                     dats[-1], lbls[-1] = func(dat=arrays['xs'][xs], lbl=arrays['ys'][ys], **kwargs)
 
         # --- Interleave dats
-        dats = interleave(np.stack(dats))
+        dats = interleave(np.stack(dats), N=N)
 
         # --- Interleave lbls
         if ys is not None:
-            lbls = interleave(np.stack(lbls))
+            lbls = interleave(np.stack(lbls), N=N)
 
         return dats, lbls
 
