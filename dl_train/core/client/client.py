@@ -3,6 +3,7 @@ import numpy as np, pandas as pd
 from dl_utils import io
 from dl_utils.db import DB
 from dl_utils.general import *
+from dl_utils.display import interleave
 
 class Client():
 
@@ -540,6 +541,39 @@ class Client():
         if aggregate:
             stack = lambda x : {k: np.stack(v) for k, v in x.items()}
             return {'xs': stack(arrs['xs']), 'ys': stack(arrs['ys'])}
+
+    def montage(self, xs, ys=None, N=5, n=None, split=None, cohort=None, func=None, **kwargs):
+        """
+        Method to load montage of self.get() arrs 
+
+        """
+        n = n or N ** 2
+
+        # --- Aggregate
+        dats, lbls = [], []
+
+        for i in range(n):
+
+            printp('Loading iteration: {:06d}'.format(i), (i + 1) / n)
+            arrays = self.get(split=split, cohort=cohort)
+
+            dats.append(arrays['xs'][xs])
+
+            if ys is not None:
+                lbls.append(arrays['ys'][ys])
+
+                # --- Apply label conversion and slice extraction function
+                if func is not None:
+                    dats[-1], lbls[-1] = func(dat=arrays['xs'][xs], lbl=arrays['ys'][ys], **kwargs)
+
+        # --- Interleave dats
+        dats = interleave(np.stack(dats))
+
+        # --- Interleave lbls
+        if ys is not None:
+            lbls = interleave(np.stack(lbls))
+
+        return dats, lbls
 
     def generator(self, split, batch_size=None):
         """
