@@ -8,7 +8,7 @@ from dl_utils.display import interleave
 
 class Client():
 
-    def __init__(self, client='./client.yml', configs=None, load=None, *args, **kwargs):
+    def __init__(self, client=None, configs=None, load=None, *args, **kwargs):
         """
         Method to initialize client
 
@@ -47,6 +47,11 @@ class Client():
             'batch': {'fold': -1, 'size': None, 'sampling': None, 'training': {'train': 0.8, 'valid': 0.2}},
             'specs': {'xs': {}, 'ys': {}, 'load_kwargs': {}, 'tiles': [False] * 4}}
 
+        # --- Attempt to find default client
+        if client is None:
+            project_id, version_id, paths, files = jtools.autodetect(pattern='client*')
+            client = '{}{}'.format(paths['code'], files['yml']) if files['yml'] is not None else './client.yml'
+
         configs = configs or {}
         if os.path.exists(client):
             with open(client, 'r') as y:
@@ -70,8 +75,7 @@ class Client():
         full = self._db
         if not os.path.exists(full):
             if self._id['project'] is not None:
-                paths = jtools.get_paths(self._id['project'])
-                paths['code'] = jtools.code_path_version_add(paths['code'], self._id['version'])
+                paths = jtools.get_paths(self._id['project'], self._id['version']) 
                 full = '{}{}'.format(paths['code'], full)
 
         # --- Load
