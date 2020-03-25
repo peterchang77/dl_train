@@ -3,6 +3,7 @@ import numpy as np, pandas as pd
 from dl_utils import io
 from dl_utils.db import DB
 from dl_utils.general import *
+from dl_utils.general import tools as jtools
 from dl_utils.display import interleave
 
 class Client():
@@ -13,14 +14,13 @@ class Client():
 
         """
         # --- Serialization attributes
-        self.ATTRS = ['_db', 'current', 'batch', 'specs']
+        self.ATTRS = ['_id', '_db', 'current', 'batch', 'specs']
 
         # --- Initialize existing settings from *.yml
         self.load_yml(client, configs)
 
         # --- Initialize db
-        self.db = DB(*(*args, *(self._db,)), **kwargs)
-        self._db = self.db.get_files()['yml'] or self.db.get_files()['csv']
+        self.load_db()
 
         # --- Initialize batch composition 
         self.prepare_batch()
@@ -39,6 +39,7 @@ class Client():
 
         """
         DEFAULTS = {
+            '_id': {'project': None, 'version': None},
             '_db': None,
             'data_in_memory': {},
             'indices': {'train': {}, 'valid': {}},
@@ -63,6 +64,19 @@ class Client():
         # --- Set (init) specs
         self.set_specs()
 
+    def load_db(self, *args, **kwargs): 
+
+        # --- Find full path 
+        full = self._db
+        if not os.path.exists(full):
+            if self._id['project'] is not None:
+                paths = jtools.get_paths(self._id['project'])
+                paths['code'] = jtools.code_path_version_add(paths['code'], self._id['version'])
+                full = '{}{}'.format(paths['code'], full)
+
+        # --- Load
+        self.db = DB(*(*args, *(full,)), **kwargs)
+
     def to_dict(self):
         """
         Method to create dictionary of metadata
@@ -77,7 +91,7 @@ class Client():
         """
         os.makedirs(os.path.dirname(fname), exist_ok=True)
         with open(fname, 'w') as y:
-            yaml.dump(self.to_dict(), y, **kwargs)
+            yaml.dump(self.to_dict(), y, sort_keys=False, **kwargs)
 
     def check_data_is_loaded(func):
         """
@@ -248,14 +262,14 @@ class Client():
                         l = self.map_array
 
                     elif 'clip' in norms and ('shift' in norms or 'scale' in norms):
-                        l = lambda x, clip, rand_shift, rand_scale, shift=0, scale=1 : \
+                        l = lambda x, clip, rand_shift, rand_scale, shift=0, scale=1, **kwargs : \
                             (x.clip(**clip) - (shift * rands(**rand_shift))) / (scale * rands(**rand_scale))
 
                     elif 'clip' in norms:
-                        l = lambda x, clip : x.clip(**clip)
+                        l = lambda x, clip, **kwargs : x.clip(**clip)
 
                     else:
-                        l = lambda x, rand_shift, rand_scale, shift=0, scale=1 : \
+                        l = lambda x, rand_shift, rand_scale, shift=0, scale=1, **kwargs : \
                             (x - (shift * rands(**rand_shift))) / (scale * rands(**rand_scale))
 
                     self.norm_lambda[a][key] = l
@@ -264,7 +278,7 @@ class Client():
                     self.norm_kwargs[a][key] = lambda row, arr, norms : \
                         {k: extract(v, row, arr) if type(v) is str else v for k, v in norms.items()}
 
-    def map_array(self, arr, mapping):
+    def map_array(self, arr, mapping, **kwargs):
         """
         Method to map values in array
 
