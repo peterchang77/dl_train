@@ -8,7 +8,7 @@ from dl_utils.display import interleave
 
 class Client():
 
-    def __init__(self, client=None, configs=None, load=None, *args, **kwargs):
+    def __init__(self, client=None, configs=None, pattern='client*', load=None, *args, **kwargs):
         """
         Method to initialize client
 
@@ -17,7 +17,7 @@ class Client():
         self.ATTRS = ['_id', '_db', 'current', 'batch', 'specs']
 
         # --- Initialize existing settings from *.yml
-        self.load_yml(client, configs)
+        self.load_yml(client, configs, pattern)
 
         # --- Initialize db
         self.load_db()
@@ -33,7 +33,7 @@ class Client():
         self.daug_func = kwargs.get('augment', None)
         self.prep_func = kwargs.get('preprocess', None)
 
-    def load_yml(self, client, configs):
+    def load_yml(self, client, configs, pattern):
         """
         Method to load metadata from YML
 
@@ -49,7 +49,7 @@ class Client():
 
         # --- Attempt to find default client
         if client is None:
-            project_id, version_id, paths, files = jtools.autodetect(pattern='client*')
+            project_id, version_id, paths, files = jtools.autodetect(pattern=pattern)
             client = '{}{}'.format(paths['code'], files['yml']) if files['yml'] is not None else './client.yml'
 
         configs = configs or {}
@@ -73,7 +73,7 @@ class Client():
 
         # --- Find full path 
         full = self._db
-        if not os.path.exists(full):
+        if not os.path.exists(full or ''):
             if self._id['project'] is not None:
                 paths = jtools.get_paths(self._id['project'], self._id['version']) 
                 full = '{}{}'.format(paths['code'], full)
