@@ -33,6 +33,10 @@ class Client():
         self.daug_func = kwargs.get('augment', None)
         self.prep_func = kwargs.get('preprocess', None)
 
+        # --- Initialize in-memory
+        if self.specs['in_memory']:
+            self.load_data_in_memory()
+
     def load_yml(self, client, configs, pattern):
         """
         Method to load metadata from YML
@@ -45,7 +49,7 @@ class Client():
             'indices': {'train': {}, 'valid': {}},
             'current': {'train': {}, 'valid': {}},
             'batch': {'fold': -1, 'size': None, 'sampling': None, 'training': {'train': 0.8, 'valid': 0.2}},
-            'specs': {'xs': {}, 'ys': {}, 'load_kwargs': {}, 'tiles': [False] * 4}}
+            'specs': {'xs': {}, 'ys': {}, 'load_kwargs': {}, 'in_memory': False, 'tiles': [False] * 4}}
 
         # --- Attempt to find default client
         if client is None:
@@ -125,27 +129,31 @@ class Client():
 
         # --- Find keys to load
         to_load = []
-        to_load += [(k, v['shape']['saved']) for k, v in self.specs['xs'].items() if v['loads'] in self.db.fnames]
-        to_load += [(k, v['shape']['saved']) for k, v in self.specs['ys'].items() if v['loads'] in self.db.fnames]
+        to_load += [v['loads'] for v in self.specs['xs'].values() if v['loads'] in self.db.fnames]
+        to_load += [v['loads'] for v in self.specs['ys'].values() if v['loads'] in self.db.fnames]
 
         # --- TODO: Check if dataset exceeds MAX_SIZE
 
         # --- Load exams into self.data_in_memory
-        for sid, fnames, header in self.db.cursor(mask=mask):
-            for key, shape in to_load:
+        for sid, fnames, header in self.db.cursor(mask=mask, drop_duplicates=True, subset=to_load):
+            for key in to_load:
                 if fnames[key] not in self.data_in_memory:
-                    load_kwargs = self.get_load_kwargs(header, shape) 
+                    load_kwargs = self.get_load_kwargs(full_res=True) 
                     self.data_in_memory[fnames[key]] = self.load_func(fnames[key], **load_kwargs)
+                    if type(self.data_in_memory[fnames[key]]) is tuple:
+                        self.data_in_memory[fnames[key]] = self.data_in_memory[fnames[key]][0]
 
         # --- Change default load function
         self.load_func = self.find_data_in_memory
 
-    def find_data_in_memory(self, fname, **kwargs):
+    def find_data_in_memory(self, fname, infos=None, **kwargs):
         """
         Method to retrieve loaded data 
 
         """
-        return self.data_in_memory.get(fname, None)
+        data = self.data_in_memory.get(fname, None)
+
+        return io.extract_data(data, infos)
         
     @check_data_is_loaded
     def prepare_batch(self, fold=None, sampling_rates=None, training_rates={'train': 0.8, 'valid': 0.2}):
@@ -376,7 +384,7 @@ class Client():
             dtype=specs['xs'][k]['dtype'],
             name=k) for k in specs['xs']}
 
-    def load(self, row, **kwargs):
+    def load(self, row, test_mode, **kwargs):
 
         arrays = {'xs': {}, 'ys': {}}
         for k in arrays:
@@ -384,7 +392,7 @@ class Client():
 
                 # --- Load from file 
                 if spec['loads'] in self.db.fnames.columns:
-                    load_kwargs = self.get_load_kwargs(row, spec['shape']['saved']) 
+                    load_kwargs = self.get_load_kwargs(row, spec['shape']['saved'], test_mode=test_mode)
                     arrays[k][key] = self.load_func(row[spec['loads']], **load_kwargs)
                     if type(arrays[k][key]) is tuple:
                         arrays[k][key] = arrays[k][key][0]
@@ -396,15 +404,39 @@ class Client():
 
         return arrays
 
-    def get_load_kwargs(self, row, shape):
+    def get_load_kwargs(self, row=None, shape=None, test_mode=False, full_res=False):
+        """
+        Method to load kwargs
 
+        NOTE: the infos dict is constructed based on the following rules:
+
+          (1) standard  : infos shape derived from self.specs
+          (2) test_mode : infos shape derived from self.specs + tiles
+          (3) full_res  : infos = {}
+
+        """
         load_kwargs = self.specs['load_kwargs'].copy()
 
         if 'infos' not in load_kwargs:
             load_kwargs['infos'] = {}
 
-        load_kwargs['infos']['point'] = [row.get('coord', 0.5), 0.5, 0.5]
-        load_kwargs['infos']['shape'] = shape[:3]
+        if not full_res:
+
+            if 'coord-z' in row:
+                z = row.get('coord-z', 0.5)
+                y = row.get('coord-y', 0.5)
+                x = row.get('coord-x', 0.5)
+                point = [z, y, x]
+
+            else:
+                z = row.get('coord', 0.5)
+                point = [z, 0.5, 0.5]
+
+            if test_mode:
+                shape = [0 if t else s for t, s in zip(self.specs['tiles'], shape)]
+
+            load_kwargs['infos']['point'] = point 
+            load_kwargs['infos']['shape'] = shape[:3]
 
         return load_kwargs
 
@@ -462,14 +494,14 @@ class Client():
 
         return {'row': row, 'split': split, 'cohort': cohort} 
 
-    def get(self, split=None, cohort=None, row=None):
+    def get(self, split=None, cohort=None, row=None, test_mode=False):
 
         # --- Load data
         kwargs = self.prepare_next_array(split=split, cohort=cohort, row=row)
-        arrays = self.load(**kwargs)
+        arrays = self.load(test_mode=test_mode, **kwargs)
 
         # --- Process 
-        arrays = self.augment(arrays, **kwargs)
+        arrays = self.augment(arrays, test_mode=test_mode, **kwargs)
         arrays = self.preprocess(arrays, **kwargs)
         arrays = self.arrs_to_numpy(arrays)
         arrays = self.normalize(arrays, **kwargs)
@@ -478,6 +510,8 @@ class Client():
         for k in ['xs', 'ys']:
             for key in arrays[k]:
                 shape = self.specs[k][key]['shape']['input']
+                if test_mode:
+                    shape = [-1 if t else s for t, s in zip(self.specs['tiles'], shape)]
                 dtype = self.specs[k][key]['dtype']
                 arrays[k][key] = arrays[k][key].reshape(shape).astype(dtype)
 
@@ -496,12 +530,12 @@ class Client():
 
         return arrays
 
-    def augment(self, arrays, **kwargs):
+    def augment(self, arrays, test_mode, **kwargs):
         """
         Method to add custom data augmentation algorithms to data
 
         """
-        if self.daug_func is not None:
+        if self.daug_func is not None and not test_mode:
             arrays = self.daug_func(arrays, self.specs, **kwargs)
 
         return arrays
@@ -618,10 +652,44 @@ class Client():
 
             yield xs, ys
 
-    def create_generators(self, batch_size=None):
+    def generator_single_pass(self, split, cohorts=None, **kwargs):
 
-        gen_train = self.generator('train', batch_size)
-        gen_valid = self.generator('valid', batch_size)
+        # --- Determine cohorts
+        if type(cohorts) is str:
+            cohorts = [cohorts]
+        cohorts = cohorts or self.indices[split].keys()
+
+        # --- Determine indices from cohorts
+        indices = np.concatenate([self.indices[split][c] for c in cohorts])
+        indices = np.sort(indices)
+
+        # --- Create temporary new database
+        db = self.db.new_db('single-pass-{}'.format(split), 
+            fnames=self.db.fnames, 
+            header=self.db.header)
+        db.fnames.index = np.arange(db.fnames.shape[0])
+        db.header.index = np.arange(db.header.shape[0])
+
+        # --- Determine if drop_duplicates based on self.specs['tiles']
+        drop_duplicates = any(self.specs['tiles'])
+        if drop_duplicates:
+            for key in ['coord', 'coord-z', 'coord-y', 'coord-x']:
+                if key in db.header:
+                    db.header[key] = 0.5
+
+        for sid, fnames, header in db.cursor(indices=indices, drop_duplicates=drop_duplicates):
+            arrays = self.get(row=sid, test_mode=True)
+            yield arrays['xs'], arrays['ys']
+
+    def create_generators(self, batch_size=None, single_pass=False, **kwargs):
+
+        if single_pass:
+            gen_train = self.generator_single_pass('train', **kwargs)
+            gen_valid = self.generator_single_pass('valid', **kwargs)
+
+        else:
+            gen_train = self.generator('train', batch_size)
+            gen_valid = self.generator('valid', batch_size)
 
         return gen_train, gen_valid
 
