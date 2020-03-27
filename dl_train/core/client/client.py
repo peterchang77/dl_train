@@ -128,9 +128,7 @@ class Client():
                 mask = mask | self.db.header[key].to_numpy()
 
         # --- Find keys to load
-        to_load = []
-        to_load += [v['loads'] for v in self.specs['xs'].values() if v['loads'] in self.db.fnames]
-        to_load += [v['loads'] for v in self.specs['ys'].values() if v['loads'] in self.db.fnames]
+        to_load = self.fnames_to_load()
 
         # --- TODO: Check if dataset exceeds MAX_SIZE
 
@@ -145,6 +143,17 @@ class Client():
 
         # --- Change default load function
         self.load_func = self.find_data_in_memory
+
+    def fnames_to_load(self):
+        """
+        Method to return list of fnames column entries to load
+
+        """
+        to_load = []
+        to_load += [v['loads'] for v in self.specs['xs'].values() if v['loads'] in self.db.fnames]
+        to_load += [v['loads'] for v in self.specs['ys'].values() if v['loads'] in self.db.fnames]
+
+        return to_load
 
     def find_data_in_memory(self, fname, infos=None, **kwargs):
         """
@@ -384,7 +393,7 @@ class Client():
             dtype=specs['xs'][k]['dtype'],
             name=k) for k in specs['xs']}
 
-    def load(self, row, test_mode, **kwargs):
+    def load(self, row, **kwargs):
 
         arrays = {'xs': {}, 'ys': {}}
         for k in arrays:
@@ -392,26 +401,31 @@ class Client():
 
                 # --- Load from file 
                 if spec['loads'] in self.db.fnames.columns:
-                    load_kwargs = self.get_load_kwargs(row, spec['shape']['saved'], test_mode=test_mode)
+                    load_kwargs = self.get_load_kwargs(row, spec['shape']['saved'], **kwargs)
                     arrays[k][key] = self.load_func(row[spec['loads']], **load_kwargs)
                     if type(arrays[k][key]) is tuple:
                         arrays[k][key] = arrays[k][key][0]
 
                 # --- Load from row
                 else:
-                    arrays[k][key] = np.array(row[spec['loads']]) if spec['loads'] is not None else \
-                        np.ones(spec['shape']['saved'], dtype=spec['dtype'])
+                    if spec['loads'] is None:
+                        arrays[k][key] = np.ones(spec['shape']['saved'], dtype=spec['dtype'])
+                    else:
+                        if kwargs['indices'] is None:
+                            arrays[k][key] = np.array(row[spec['loads']])
+                        else:
+                            arrays[k][key] = np.array(self.db.header[spec['loads']][kwargs['indices']])
 
         return arrays
 
-    def get_load_kwargs(self, row=None, shape=None, test_mode=False, full_res=False):
+    def get_load_kwargs(self, row=None, shape=None, full_res=False, **kwargs):
         """
         Method to load kwargs
 
         NOTE: the infos dict is constructed based on the following rules:
 
           (1) standard  : infos shape derived from self.specs
-          (2) test_mode : infos shape derived from self.specs + tiles
+          (2) indices   : infos shape + point derived from self.specs + indices 
           (3) full_res  : infos = {}
 
         """
@@ -420,23 +434,30 @@ class Client():
         if 'infos' not in load_kwargs:
             load_kwargs['infos'] = {}
 
-        if not full_res:
+        if full_res:
+            return load_kwargs
 
-            if 'coord-z' in row:
-                z = row.get('coord-z', 0.5)
-                y = row.get('coord-y', 0.5)
-                x = row.get('coord-x', 0.5)
-                point = [z, y, x]
+        if kwargs['indices'] is None:
 
-            else:
-                z = row.get('coord', 0.5)
-                point = [z, 0.5, 0.5]
+            z = row.get('coord-z', 0.5) if 'coord-z' in row else row.get('coord', 0.5)
+            y = row.get('coord-y', 0.5)
+            x = row.get('coord-x', 0.5)
 
-            if test_mode:
-                shape = [0 if t else s for t, s in zip(self.specs['tiles'], shape)]
-
-            load_kwargs['infos']['point'] = point 
+            load_kwargs['infos']['point'] = [z, y, x] 
             load_kwargs['infos']['shape'] = shape[:3]
+
+        else:
+
+            unique = lambda x, i : np.unique(self.db.header[x][kwargs['indices']]) \
+                if x in self.db.header else  np.linspace(0, 1, shape[i])
+            mean = lambda x : np.around(np.mean(x), 6)
+
+            z = unique('coord-z', 0) if 'coord-z' in row else unique('coord', 0)
+            y = unique('coord-y', 1) 
+            x = unique('coord-x', 2) 
+
+            load_kwargs['infos']['point'] = [mean(z), mean(y), mean(x)]
+            load_kwargs['infos']['shape'] = [z.size, y.size, x.size] 
 
         return load_kwargs
 
@@ -465,8 +486,14 @@ class Client():
     def prepare_next_array(self, split=None, cohort=None, row=None):
 
         if row is not None:
-            row = self.db.row(row)
-            return {'row': row, 'split': split, 'cohort': cohort}
+            if type(row) is int:
+                indices = None
+                row = self.db.row(row)
+            else:
+                indices = np.array(row) 
+                row = self.db.row(row[0])
+
+            return {'row': row, 'split': split, 'cohort': cohort, 'indices': indices}
 
         if split is None:
             split = 'train' if np.random.rand() < self.batch['training']['train'] else 'valid'
@@ -492,16 +519,21 @@ class Client():
         # --- Increment counter
         c['count'] += 1
 
-        return {'row': row, 'split': split, 'cohort': cohort} 
+        return {'row': row, 'split': split, 'cohort': cohort, 'indices': None} 
 
-    def get(self, split=None, cohort=None, row=None, test_mode=False):
+    def get(self, split=None, cohort=None, row=None):
+        """
+        Method to load and process data 
 
+        NOTE: row may represent either a single index or consecutive indices to load
+
+        """
         # --- Load data
         kwargs = self.prepare_next_array(split=split, cohort=cohort, row=row)
-        arrays = self.load(test_mode=test_mode, **kwargs)
+        arrays = self.load(**kwargs)
 
         # --- Process 
-        arrays = self.augment(arrays, test_mode=test_mode, **kwargs)
+        arrays = self.augment(arrays, **kwargs)
         arrays = self.preprocess(arrays, **kwargs)
         arrays = self.arrs_to_numpy(arrays)
         arrays = self.normalize(arrays, **kwargs)
@@ -510,8 +542,12 @@ class Client():
         for k in ['xs', 'ys']:
             for key in arrays[k]:
                 shape = self.specs[k][key]['shape']['input']
-                if test_mode:
-                    shape = [-1 if t else s for t, s in zip(self.specs['tiles'], shape)]
+
+                # --- Modify shapes for indices-type loading
+                if kwargs['indices'] is not None:
+                    shape = [-1 if t else s for t, s in zip(self.specs['tiles'], shape)] \
+                        if any(self.specs['tiles']) else [-1] + shape
+
                 dtype = self.specs[k][key]['dtype']
                 arrays[k][key] = arrays[k][key].reshape(shape).astype(dtype)
 
@@ -530,12 +566,12 @@ class Client():
 
         return arrays
 
-    def augment(self, arrays, test_mode, **kwargs):
+    def augment(self, arrays, **kwargs):
         """
         Method to add custom data augmentation algorithms to data
 
         """
-        if self.daug_func is not None and not test_mode:
+        if self.daug_func is not None and kwargs['indices'] is None:
             arrays = self.daug_func(arrays, self.specs, **kwargs)
 
         return arrays
@@ -672,13 +708,24 @@ class Client():
 
         # --- Determine if drop_duplicates based on self.specs['tiles']
         drop_duplicates = any(self.specs['tiles'])
+
         if drop_duplicates:
-            for key in ['coord', 'coord-z', 'coord-y', 'coord-x']:
-                if key in db.header:
-                    db.header[key] = 0.5
+            to_load = self.fnames_to_load()
+            expanded = db.fnames_expand(cols=to_load)
 
         for sid, fnames, header in db.cursor(indices=indices, drop_duplicates=drop_duplicates):
-            arrays = self.get(row=sid, test_mode=True)
+
+            if drop_duplicates:
+                indices = np.ones(db.fnames.shape[0], dtype='bool')
+                for key in to_load:
+                    indices = indices & (expanded[key] == fnames[key])
+                row = np.nonzero(indices.to_numpy())[0]
+
+            else:
+                row = sid
+
+            arrays = self.get(row=row)
+
             yield arrays['xs'], arrays['ys']
 
     def create_generators(self, batch_size=None, single_pass=False, **kwargs):
