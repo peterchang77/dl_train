@@ -162,7 +162,11 @@ class Client():
         """
         data = self.data_in_memory.get(fname, None)
 
-        return io.extract_data(data, infos)
+        if type(data) is np.ndarray:
+            return io.extract_data(data, infos)
+
+        else:
+            return data
         
     @check_data_is_loaded
     def prepare_batch(self, fold=None, sampling_rates=None, training_rates={'train': 0.8, 'valid': 0.2}):
